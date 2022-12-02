@@ -20,28 +20,31 @@ import record
 import Utils
 
 # Setting Parameters ------------------------------------------------
-REMAIN_BAND = 20            # number of channels to keep
+VERIFY: bool = True
+PATH = r'../data/'
+FILES: str = []
+REMAIN_BAND: int = 20            # number of channels to keep
 VALIDATION_SPLIT = 0.9
-ITER = 1
-PATCH_LENGTH = 4
-KERNEL_SIZE = 24
+ITER: int = 1
+PATCH_LENGTH: int = 4
+KERNEL_SIZE: int = 24
 lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
-EPOCH = 100
+EPOCH: int = 100
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
 # Data Loading ------------------------------------------------------
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("training on ", device)
 
-def load_dataset(): # originally parameters are used for decide which data to load
+def load_dataset(data): # originally parameters are used for decide which data to load
 
-    os.chdir(os.path.dirname(__file__))
-    data_path = r'../data/'
-    mat_data = sio.loadmat(data_path + 'Indian_pines_corrected.mat')
-    mat_gt = sio.loadmat(data_path + 'Indian_pines_gt.mat')
-    data_hsi = mat_data['indian_pines_corrected']           # 145*145*200
-    gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
+    if VERIFY:
+        mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
+        mat_gt = sio.loadmat(PATH + 'Indian_pines_gt.mat')
+        data_hsi = mat_data['indian_pines_corrected']           # 145*145*200
+        gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
 
     shapeorig = data_hsi.shape
     data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
@@ -54,7 +57,8 @@ def load_dataset(): # originally parameters are used for decide which data to lo
 
     return data_hsi, gt_hsi, nonzero_number_size
 
-data_hsi, gt_hsi, TOTAL_SIZE = load_dataset()
+os.chdir(os.path.dirname(__file__))
+data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(FILES)
 data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
 gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 CLASSES_NUM = max(gt)
@@ -391,7 +395,6 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
     loss_list = [100]
     early_epoch = 0
 
-    print("training on ", device)
     net = net.to(device)
     start = time.time()
     train_loss_list = []

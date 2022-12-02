@@ -46,8 +46,7 @@ def sampling(proportion, ground_truth):
 
 def classification_map(map, ground_truth, dpi, save_path):
     fig = plt.figure(frameon=False)
-    fig.set_size_inches(ground_truth.shape[1] * 2.0 / dpi,
-                        ground_truth.shape[0] * 2.0 / dpi)
+    fig.set_size_inches(ground_truth.shape[1] / dpi, ground_truth.shape[0] / dpi)
     ax = plt.Axes(fig, [0., 0., 1., 1.])
     ax.set_axis_off()
     ax.xaxis.set_visible(False)
@@ -114,9 +113,9 @@ def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
     gt = gt_hsi.flatten()
     x_label = np.zeros(gt.shape)
     for i in range(len(gt)):
-        if gt[i] == 0:
-            gt[i] = 17
-            x_label[i] = 16
+        if gt[i] == 0:          # if gt background
+            gt[i] = 17          # 17-1=16 -> black
+            x_label[i] = 16     # 16 -> black
     gt = gt[:] - 1
     x_label[total_indices] = pred_test
     x = np.ravel(x_label)
