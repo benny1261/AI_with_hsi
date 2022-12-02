@@ -447,31 +447,6 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
     print('epoch %d, loss %.4f, train acc %.3f, time %.1f sec'
         % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, time.time() - start))
 
-def sampling(proportion, ground_truth):
-    train = {}
-    test = {}
-    labels_loc = {}
-    m = max(ground_truth)
-    for i in range(m):
-        indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1] # will not take background:0 into account
-        np.random.shuffle(indexes)
-        labels_loc[i] = indexes
-        if proportion != 1:
-            nb_val = max(int((1 - proportion) * len(indexes)), 3)   # preserves at least 3 training data
-        else:
-            nb_val = 0
-        train[i] = indexes[:nb_val]
-        test[i] = indexes[nb_val:]
-    train_indexes = []
-    test_indexes = []
-    for i in range(m):
-        # print(len(train[i]), len(test[i]))
-        train_indexes += train[i]
-        test_indexes += test[i]
-    np.random.shuffle(train_indexes)
-    np.random.shuffle(test_indexes)
-    return train_indexes, test_indexes
-
 def select(groundTruth):  #divide dataset into train and test datasets
     labels_loc = {}
     train = {}
@@ -524,8 +499,8 @@ for index_iter in range(ITER):
     time_1 = int(time.time())
     np.random.seed(seeds[index_iter])
     # train_indices, test_indices = select(gt)
-    train_indices, test_indices = sampling(VALIDATION_SPLIT, gt)
-    _, total_indices = sampling(1, gt)
+    train_indices, test_indices = Utils.sampling(VALIDATION_SPLIT, gt)
+    _, total_indices = Utils.sampling(1, gt)
 
     TRAIN_SIZE = len(train_indices)
     print('Train size: ', TRAIN_SIZE)

@@ -19,14 +19,11 @@ def sampling(proportion, ground_truth):
     labels_loc = {}
     m = max(ground_truth)
     for i in range(m):
-        indexes = [
-            j for j, x in enumerate(ground_truth.ravel().tolist())
-            if x == i + 1
-        ]
+        indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1] # will not take background:0 into account
         np.random.shuffle(indexes)
         labels_loc[i] = indexes
         if proportion != 1:
-            nb_val = max(int((1 - proportion) * len(indexes)), 3)
+            nb_val = max(int((1 - proportion) * len(indexes)), 3)   # preserves at least 3 training data
         else:
             nb_val = 0
         train[i] = indexes[:nb_val]
@@ -34,6 +31,7 @@ def sampling(proportion, ground_truth):
     train_indexes = []
     test_indexes = []
     for i in range(m):
+        # print(len(train[i]), len(test[i]))
         train_indexes += train[i]
         test_indexes += test[i]
     np.random.shuffle(train_indexes)
@@ -126,8 +124,6 @@ def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
     y_gt = list_to_colormap(gt)
     y_re = np.reshape(y_list, (gt_hsi.shape[0], gt_hsi.shape[1], 3))
     gt_re = np.reshape(y_gt, (gt_hsi.shape[0], gt_hsi.shape[1], 3))
-    classification_map(y_re, gt_hsi, 300,
-                       path + '.png')
-    classification_map(gt_re, gt_hsi, 300,
-                       path + '_gt.png')
+    classification_map(y_re, gt_hsi, 300, path + '.png')
+    classification_map(gt_re, gt_hsi, 300, path + '_gt.png')
     print('------Get classification maps successful-------')
