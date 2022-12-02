@@ -34,10 +34,7 @@ seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      
 # Data Loading ------------------------------------------------------
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def load_dataset(split=0.9):
-    TOTAL_SIZE = 10249                                      # original 10249 but why??????
-    VALIDATION_SPLIT = split
-    TRAIN_SIZE = math.ceil(TOTAL_SIZE * VALIDATION_SPLIT)
+def load_dataset(): # originally parameters are used for decide which data to load
 
     os.chdir(os.path.dirname(__file__))
     data_path = r'../data/'
@@ -53,9 +50,11 @@ def load_dataset(split=0.9):
     shapeorig[-1] = REMAIN_BAND
     data_hsi = data_hsi.reshape(shapeorig)
 
-    return data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE
+    nonzero_number_size = np.count_nonzero(gt_hsi)      # 10249 in example
 
-data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE = load_dataset(VALIDATION_SPLIT)
+    return data_hsi, gt_hsi, nonzero_number_size
+
+data_hsi, gt_hsi, TOTAL_SIZE = load_dataset()
 data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
 gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 CLASSES_NUM = max(gt)
@@ -66,7 +65,6 @@ img_rows = 2 * PATCH_LENGTH + 1
 img_cols = 2 * PATCH_LENGTH + 1
 BANDS = data_hsi.shape[2]
 ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
-VAL_SIZE = int(TRAIN_SIZE)
 
 # Container Params---------------------------------------------------
 KAPPA = []
@@ -455,11 +453,11 @@ def sampling(proportion, ground_truth):
     labels_loc = {}
     m = max(ground_truth)
     for i in range(m):
-        indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1]
+        indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1] # will not take background:0 into account
         np.random.shuffle(indexes)
         labels_loc[i] = indexes
         if proportion != 1:
-            nb_val = max(int((1 - proportion) * len(indexes)), 3)
+            nb_val = max(int((1 - proportion) * len(indexes)), 3)   # preserves at least 3 training data
         else:
             nb_val = 0
         train[i] = indexes[:nb_val]
@@ -467,6 +465,7 @@ def sampling(proportion, ground_truth):
     train_indexes = []
     test_indexes = []
     for i in range(m):
+        # print(len(train[i]), len(test[i]))
         train_indexes += train[i]
         test_indexes += test[i]
     np.random.shuffle(train_indexes)
