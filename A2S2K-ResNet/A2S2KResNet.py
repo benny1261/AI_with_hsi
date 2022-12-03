@@ -23,6 +23,7 @@ import Utils
 VERIFY: bool = True
 PATH = r'../data/'
 FILES: str = []
+CUT_SIZE = (300, 200)
 REMAIN_BAND: int = 20            # number of channels to keep
 VALIDATION_SPLIT = 0.9
 ITER: int = 1
@@ -61,14 +62,14 @@ os.chdir(os.path.dirname(__file__))
 data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(FILES)
 data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
 gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
-CLASSES_NUM = max(gt)
-print('The class numbers of the HSI data is:', CLASSES_NUM)
 
 # Passive Params-----------------------------------------------------
 img_rows = 2 * PATCH_LENGTH + 1
 img_cols = 2 * PATCH_LENGTH + 1
 BANDS = data_hsi.shape[2]
 ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
+CLASSES_NUM = len(np.unique(gt))-1
+print('The class numbers of the HSI data is:', CLASSES_NUM)
 
 # Container Params---------------------------------------------------
 KAPPA = []

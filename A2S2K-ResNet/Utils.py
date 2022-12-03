@@ -1,16 +1,17 @@
 import numpy as np
-from sklearn import metrics, preprocessing
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.decomposition import PCA
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, cohen_kappa_score
-from operator import truediv
 import matplotlib.pyplot as plt
-import scipy.io as sio
+from PIL import Image
 import os
 import spectral
-import torch
-import cv2
+from spectral.io import envi
+# from sklearn import metrics, preprocessing
+# from sklearn.preprocessing import MinMaxScaler
+# from sklearn.decomposition import PCA
+# from sklearn.model_selection import train_test_split
+# from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, cohen_kappa_score
+# from operator import truediv
+# import scipy.io as sio
+# import torch
 
 
 def sampling(proportion, ground_truth):
@@ -126,3 +127,38 @@ def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
     classification_map(y_re, gt_hsi, 300, path + '.png')
     classification_map(gt_re, gt_hsi, 300, path + '_gt.png')
     print('------Get classification maps successful-------')
+
+def label_preprocess(file_path: str, label: int) -> list:
+    '''image to numpy array with pixel value replaces by intergers representing its class, dtype=uint8'''
+    _ = np.asarray(Image.open(file_path))   # this will make an 2D array with all nonzeros=1
+    return _*label
+
+def cut_combine(size:tuple, *data) -> tuple :
+    '''param: *data = (grayscaleimage, hsi, (anchor_y, anchor_x))
+    \n ret: ground truth stack, hsi stack
+    '''
+    y_len, x_len = size
+    labeled = []
+    hsis = []
+    for image, hsi, anchor in data:
+        labeled.append(image[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len])
+        hsis.append(hsi[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len, :])
+    
+    lab_stack = np.hstack(labeled)
+    hsi_stack = np.hstack(hsis)
+    return lab_stack, hsi_stack
+
+if __name__ == "__main__":
+    os.chdir(os.path.dirname(__file__))
+    PATH = r'../data/'
+    spectral.settings.envi_support_nonlowercase_params = 'TRUE'
+
+    labeled1 = label_preprocess(PATH+r'hct8/masks/1018_2_hct8.png', 1)
+    labeled2 = label_preprocess(PATH+r'nih3t3/masks/1018_2_nih3t3.png', 2)
+    hsi_1 = envi.open(PATH+r'hct8/1018_2_processed_fixed' + ".hdr" , PATH+r'hct8/1018_2_processed_fixed' + ".raw")
+    hsi_2 = envi.open(PATH+r'nih3t3/1018_2_processed_fixed' + ".hdr" , PATH+r'nih3t3/1018_2_processed_fixed' + ".raw")
+
+    print(labeled2.shape)
+    print(hsi_1.shape)
+    lb, hsi = cut_combine((300,200), (labeled1, hsi_1, (0,0)), (labeled2, hsi_2, (0,0)))
+    print(lb.shape, hsi.shape)
