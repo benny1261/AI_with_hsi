@@ -14,25 +14,28 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 import torch_optimizer as optim2
 from torchsummary import summary
+import spectral
+from spectral.io import envi
 
 import geniter
 import record
 import Utils
 
 # Setting Parameters ------------------------------------------------
-VERIFY: bool = True
+VERIFY: bool = False
 PATH = r'../data/'
-FILES: str = []
+data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
+        (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
 CUT_SIZE = (300, 200)
 REMAIN_BAND: int = 20            # number of channels to keep
 VALIDATION_SPLIT = 0.9
-ITER: int = 1
+ITER: int = 2
 PATCH_LENGTH: int = 4
 KERNEL_SIZE: int = 24
 lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
-EPOCH: int = 100
+EPOCH: int = 40
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
 # Data Loading ------------------------------------------------------
@@ -46,6 +49,16 @@ def load_dataset(data): # originally parameters are used for decide which data t
         mat_gt = sio.loadmat(PATH + 'Indian_pines_gt.mat')
         data_hsi = mat_data['indian_pines_corrected']           # 145*145*200
         gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
+    else:
+        spectral.settings.envi_support_nonlowercase_params = 'TRUE'
+        for _ in range(len(data)):
+            label_path, hsi_path, anchor = data[_]
+            labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
+            hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+            data[_] = (labeled, hsi, anchor)
+
+        gt_hsi, data_hsi = Utils.cut_combine(CUT_SIZE, *data)
+        print(gt_hsi.shape, data_hsi.shape)
 
     shapeorig = data_hsi.shape
     data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
@@ -55,11 +68,10 @@ def load_dataset(data): # originally parameters are used for decide which data t
     data_hsi = data_hsi.reshape(shapeorig)
 
     nonzero_number_size = np.count_nonzero(gt_hsi)      # 10249 in example
-
     return data_hsi, gt_hsi, nonzero_number_size
 
 os.chdir(os.path.dirname(__file__))
-data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(FILES)
+data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data)
 data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
 gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
@@ -482,7 +494,6 @@ def select(groundTruth):  #divide dataset into train and test datasets
 
 # Training ----------------------------------------------------------
 for index_iter in range(ITER):
-    print('iter:', index_iter)
     #define the model
     net = S3KAIResNet(BANDS, CLASSES_NUM, 2)
 
@@ -545,8 +556,8 @@ for index_iter in range(ITER):
     if not os.path.exists('models'):
         os.makedirs('models')
     torch.save(
-        net.state_dict(), "./models/" + str(img_rows) + '_split_' + str(VALIDATION_SPLIT) + '_lr_' + str(lr) +
-        OPTIM + '_kernel_' + str(KERNEL_SIZE) + str(round(overall_acc, 3)) + '.pt')
+        net.state_dict(), "./models/" + 'split_' + str(VALIDATION_SPLIT) + '_lr_' + str(lr) + '_'
+        + OPTIM + '_kernel_' + str(KERNEL_SIZE) + '_' + str(round(overall_acc, 3)) + '.pt')
     KAPPA.append(kappa)
     OA.append(overall_acc)
     AA.append(average_acc)

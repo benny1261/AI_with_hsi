@@ -25,18 +25,18 @@ def select_small_cubic(data_size, data_indices, whole_data, patch_length, padded
 
 
 def generate_iter(TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE, total_indices, VAL_SIZE,
-                  whole_data, PATCH_LENGTH, padded_data, INPUT_DIMENSION, batch_size, gt):
+                  whole_data, PATCH_LENGTH, padded_data, input_bands, batch_size, gt):
     gt_all = gt[total_indices] - 1
     y_train = gt[train_indices] - 1
     y_test = gt[test_indices] - 1
 
-    all_data =  select_small_cubic(TOTAL_SIZE, total_indices, whole_data, PATCH_LENGTH, padded_data, INPUT_DIMENSION)
+    all_data =  select_small_cubic(TOTAL_SIZE, total_indices, whole_data, PATCH_LENGTH, padded_data, input_bands)
 
-    train_data = select_small_cubic(TRAIN_SIZE, train_indices, whole_data, PATCH_LENGTH, padded_data, INPUT_DIMENSION)
+    train_data = select_small_cubic(TRAIN_SIZE, train_indices, whole_data, PATCH_LENGTH, padded_data, input_bands)
     print(train_data.shape)
-    test_data =  select_small_cubic(TEST_SIZE, test_indices, whole_data, PATCH_LENGTH, padded_data, INPUT_DIMENSION)
-    x_train = train_data.reshape(train_data.shape[0], train_data.shape[1], train_data.shape[2], INPUT_DIMENSION)
-    x_test_all = test_data.reshape(test_data.shape[0], test_data.shape[1], test_data.shape[2], INPUT_DIMENSION)
+    test_data =  select_small_cubic(TEST_SIZE, test_indices, whole_data, PATCH_LENGTH, padded_data, input_bands)
+    x_train = train_data.reshape(train_data.shape[0], train_data.shape[1], train_data.shape[2], input_bands)
+    x_test_all = test_data.reshape(test_data.shape[0], test_data.shape[1], test_data.shape[2], input_bands)
 
     x_val = x_test_all[-VAL_SIZE:]
     y_val = y_test[-VAL_SIZE:]
@@ -56,7 +56,7 @@ def generate_iter(TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE
     y1_tensor_test = torch.from_numpy(y_test).type(torch.FloatTensor)
     torch_dataset_test = Data.TensorDataset(x1_tensor_test,y1_tensor_test)
 
-    all_data.reshape(all_data.shape[0], all_data.shape[1], all_data.shape[2], INPUT_DIMENSION)
+    all_data.reshape(all_data.shape[0], all_data.shape[1], all_data.shape[2], input_bands)
     all_tensor_data = torch.from_numpy(all_data).type(torch.FloatTensor).unsqueeze(1)
     all_tensor_data_label = torch.from_numpy(gt_all).type(torch.FloatTensor)
     torch_dataset_all = Data.TensorDataset(all_tensor_data, all_tensor_data_label)
@@ -65,25 +65,25 @@ def generate_iter(TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE
     train_iter = Data.DataLoader(
         dataset=torch_dataset_train,  # torch TensorDataset format
         batch_size=batch_size,  # mini batch size
-        shuffle=True,  
-        num_workers=0, 
+        shuffle=True,
+        num_workers=0,
     )
     valiada_iter = Data.DataLoader(
         dataset=torch_dataset_valida,  # torch TensorDataset format
         batch_size=batch_size,  # mini batch size
-        shuffle=True,  
-        num_workers=0, 
+        shuffle=True,
+        num_workers=0,
     )
     test_iter = Data.DataLoader(
         dataset=torch_dataset_test,  # torch TensorDataset format
         batch_size=batch_size,  # mini batch size
-        shuffle=False, 
-        num_workers=0, 
+        shuffle=False,
+        num_workers=0,
     )
     all_iter = Data.DataLoader(
         dataset=torch_dataset_all,  # torch TensorDataset format
         batch_size=batch_size,  # mini batch size
-        shuffle=False, 
-        num_workers=0, 
+        shuffle=False,
+        num_workers=0,
     )
     return train_iter, valiada_iter, test_iter, all_iter #, y_test
