@@ -27,7 +27,7 @@ PATH = r'../data/'
 data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
 CUT_SIZE = (300, 200)
-REMAIN_BAND: int = 20            # number of channels to keep
+REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
 ITER: int = 2
 PATCH_LENGTH: int = 4
@@ -368,7 +368,7 @@ class S3KAIResNet(nn.Module):
             nn.ReLU(inplace=True))
 
         self.avg_pooling = nn.AvgPool3d(kernel_size=(5, 5, 1))
-        self.full_connection = nn.Sequential(
+        self.full_connection = nn.Sequential(       # single layer linear classifier
             nn.Linear(KERNEL_SIZE, classes)
             # nn.Softmax()
         )
@@ -463,34 +463,9 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
     print('epoch %d, loss %.4f, train acc %.3f, time %.1f sec'
         % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, time.time() - start))
 
-def select(groundTruth):  #divide dataset into train and test datasets
-    labels_loc = {}
-    train = {}
-    test = {}
-    m = max(groundTruth)
 
-    amount = [35, 1011, 581, 167, 344, 515, 19, 327, 12, 683, 1700, 418, 138, 876, 274, 69]  #IP 20%
-    #amount = [6, 144, 84, 24, 50, 75, 3, 49, 2, 97, 247, 62, 22, 130, 38, 10]   #IP 20%
-    for i in range(m):
-        indices = [j for j, x in enumerate(groundTruth.ravel().tolist()) if x == i + 1]
-        np.random.shuffle(indices)
-        labels_loc[i] = indices
-        nb_val = int(amount[i])         # divide point of train and test
-        train[i] = indices[:-nb_val]
-        test[i] = indices[-nb_val:]
-    # whole_indices = []
-    train_indices = []
-    test_indices = []
-    for i in range(m):
-        #whole_indices += labels_loc[i]
-        train_indices += train[i]
-        test_indices += test[i]
-    np.random.shuffle(train_indices)
-    np.random.shuffle(test_indices)
-    return train_indices, test_indices
-
-# model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-# summary(model, input_data=(1, img_rows, img_cols, BANDS), verbose=1)
+model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
+summary(model, input_data=(1, img_rows, img_cols, BANDS), verbose=1)
 
 # Training ----------------------------------------------------------
 for index_iter in range(ITER):
@@ -513,7 +488,7 @@ for index_iter in range(ITER):
             weight_decay=0)
     time_1 = int(time.time())
     np.random.seed(seeds[index_iter])
-    # train_indices, test_indices = select(gt)
+
     train_indices, test_indices = Utils.sampling(VALIDATION_SPLIT, gt)
     _, total_indices = Utils.sampling(1, gt)
 
@@ -527,7 +502,7 @@ for index_iter in range(ITER):
     # Pytorch DataLoader
     train_iter, valida_iter, test_iter, all_iter = geniter.generate_iter(
         TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE,
-        total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BANDS, 16, gt)
+        total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BANDS, batch_size, gt)
 
     print(f'------training({index_iter+1}/{ITER})------')
     tic1 = time.time()
