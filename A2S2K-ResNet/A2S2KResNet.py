@@ -29,7 +29,7 @@ data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
 CUT_SIZE = (300, 200)
 REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
-ITER: int = 2
+ITER: int = 1
 PATCH_LENGTH: int = 4
 KERNEL_SIZE: int = 24
 lr, num_epochs, batch_size = 0.001, 200, 32
@@ -253,8 +253,6 @@ class eca_layer(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # x: input features with shape [b, c, h, w]
-        b, c, h, w, t = x.size()
 
         # feature descriptor on the global spatial information
         # 24, 1, 1, 1
@@ -269,7 +267,7 @@ class eca_layer(nn.Module):
         return x * y.expand_as(x)
 
 
-class Residual(nn.Module):  # pytorch
+class Residual(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, padding,
             use_1x1conv=False, stride= 1, start_block=False, end_block=False,):
         super(Residual, self).__init__()
@@ -333,15 +331,14 @@ class Residual(nn.Module):  # pytorch
 class S3KAIResNet(nn.Module):
     def __init__(self, band, classes, reduction):
         super(S3KAIResNet, self).__init__()
-        self.name = 'SSRN'
         self.conv1x1 = nn.Conv3d(in_channels=1, out_channels= KERNEL_SIZE, kernel_size=(1, 1, 7), stride=(1, 1, 2), padding=0)
         self.conv3x3 = nn.Conv3d(in_channels=1, out_channels= KERNEL_SIZE, kernel_size=(3, 3, 7), stride=(1, 1, 2), padding=(1, 1, 0))
 
         self.batch_norm1x1 = nn.Sequential(
-            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),  # 0.1
+            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(inplace=True))
         self.batch_norm3x3 = nn.Sequential(
-            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),  # 0.1
+            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(inplace=True))
 
         self.pool = nn.AdaptiveAvgPool3d(1)
@@ -360,11 +357,11 @@ class S3KAIResNet(nn.Module):
 
         self.conv2 = nn.Conv3d(in_channels= KERNEL_SIZE, out_channels=128, padding=(0, 0, 0), kernel_size=(1, 1, kernel_3d), stride=(1, 1, 1))
         self.batch_norm2 = nn.Sequential(
-            nn.BatchNorm3d(128, eps=0.001, momentum=0.1, affine=True),  # 0.1
+            nn.BatchNorm3d(128, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(inplace=True))
         self.conv3 = nn.Conv3d(in_channels=1, out_channels= KERNEL_SIZE, padding=(0, 0, 0), kernel_size=(3, 3, 128), stride=(1, 1, 1))
         self.batch_norm3 = nn.Sequential(
-            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),  # 0.1
+            nn.BatchNorm3d(KERNEL_SIZE, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(inplace=True))
 
         self.avg_pooling = nn.AvgPool3d(kernel_size=(5, 5, 1))
@@ -447,15 +444,15 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
             % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n,
                valida_loss, valida_acc, time.time() - time_epoch))
 
-        PATH = "./net_DBA.pt"
+        MODEL_PATH = "./net_DBA.pt"
 
         if early_stopping and loss_list[-2] < loss_list[-1]:
             if early_epoch == 0:
-                torch.save(net.state_dict(), PATH)
+                torch.save(net.state_dict(), MODEL_PATH)
             early_epoch += 1
             loss_list[-1] = loss_list[-2]
             if early_epoch == early_num:
-                net.load_state_dict(torch.load(PATH))
+                net.load_state_dict(torch.load(MODEL_PATH))
                 break
         else:
             early_epoch = 0
@@ -465,7 +462,7 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
 
 
 model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-summary(model, input_data=(1, img_rows, img_cols, BANDS), verbose=1)
+summary(model, input_size=(1, img_rows, img_cols, BANDS))
 
 # Training ----------------------------------------------------------
 for index_iter in range(ITER):
@@ -518,7 +515,7 @@ for index_iter in range(ITER):
             X = X.to(device)
             net.eval()
             y_hat = net(X)
-            pred_test.extend(np.array(net(X).cpu().argmax(axis=1)))
+            pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
     toc2 = time.time()
     collections.Counter(pred_test)
     gt_test = gt[test_indices] - 1
@@ -546,12 +543,12 @@ if not os.path.exists('report'):
     os.makedirs('report')
 record.record_output(
     OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME,
-    './report/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) + 'lr' +
-    str(lr) + OPTIM + '_kernel_' + str(KERNEL_SIZE) + '.txt')
+    './report/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) + '_lr' +
+    str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE) + '.txt')
 
 if not os.path.exists('classification_maps'):
     os.makedirs('classification_maps')
 Utils.generate_png(
     all_iter, net, gt_hsi, device, total_indices,
     './classification_maps/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) +
-    'lr' + str(lr) + OPTIM + '_kernel_' + str(KERNEL_SIZE))
+    '_lr' + str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE))
