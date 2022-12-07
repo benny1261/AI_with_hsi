@@ -1,17 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import random
 import os
 import spectral
 from spectral.io import envi
+from scipy.ndimage import label
 # from sklearn import metrics, preprocessing
 # from sklearn.preprocessing import MinMaxScaler
 # from sklearn.decomposition import PCA
 # from sklearn.model_selection import train_test_split
 # from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, cohen_kappa_score
-# from operator import truediv
-# import scipy.io as sio
-# import torch
 
 
 def sampling(proportion, ground_truth):
@@ -39,12 +38,6 @@ def sampling(proportion, ground_truth):
     np.random.shuffle(test_indexes)
     return train_indexes, test_indexes
 
-
-# def set_figsize(figsize=(3.5, 2.5)):
-#     display.set_matplotlib_formats('svg')
-#     plt.rcParams['figure.figsize'] = figsize
-
-
 def classification_map(map, ground_truth, dpi, save_path):
     fig = plt.figure(frameon=False)
     fig.set_size_inches(ground_truth.shape[1] / dpi, ground_truth.shape[0] / dpi)
@@ -56,7 +49,6 @@ def classification_map(map, ground_truth, dpi, save_path):
     ax.imshow(map)
     fig.savefig(save_path, dpi=dpi)
     return 0
-
 
 def list_to_colormap(x_list):
     y = np.zeros((x_list.shape[0], 3))
@@ -103,7 +95,6 @@ def list_to_colormap(x_list):
             y[index] = np.array([0, 0, 0]) / 255.
     return y
 
-
 def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
     pred_test = []
     for X, y in all_iter:
@@ -133,7 +124,7 @@ def label_preprocess(file_path: str, label: int) -> list:
     _ = np.asarray(Image.open(file_path))   # this will make an 2D array with all nonzeros=1
     return _*label
 
-def cut_combine(size:tuple, *data) -> tuple :
+def cut_hstack(size:tuple, *data) -> tuple :
     '''param: *data = (grayscaleimage, hsi, (anchor_y, anchor_x))
     \n ret: ground truth stack, hsi stack
     '''
@@ -148,17 +139,101 @@ def cut_combine(size:tuple, *data) -> tuple :
     hsi_stack = np.hstack(hsis)
     return lab_stack, hsi_stack
 
+def cut_merge(size:tuple, *data) -> tuple :
+    '''param: *data = (grayscaleimage, hsi, (anchor_y, anchor_x))
+    \n ret: ground truth merge, hsi merge
+    '''
+    HSI_ORIG_BANDS = 150
+    y_len, x_len = size
+    struc_kernal = np.ones((3, 3), dtype=np.uint0)
+    labeled = []
+    hsis = []
+    for image, hsi, anchor in data:
+        labeled.append(image[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len])
+        hsis.append(hsi[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len, :])
+
+    # classnum = len(labeled) ///currently only 2 classes available///
+    hsi_mix = hsis[0]                                                       # uses first hsi image as background
+    onlyc2_mask = np.logical_and(np.logical_not(labeled[0]), labeled[1])    # 2d mask
+    cyx_cube = np.moveaxis(np.empty(hsis[0].shape, dtype=bool), 2, 0)       # shape = (channel, spatial_y, spatial_x)
+    cyx_cube[:,:,:] = onlyc2_mask
+    yxc_cube = np.moveaxis(cyx_cube, 0, -1)
+    np.putmask(hsi_mix, yxc_cube, hsis[1])
+
+    overlap = np.logical_and.reduce(labeled).astype(np.uint8)  # = np.logical_and(np.logical_and(x, y), z)
+    island_labeled, num_islands = label(overlap, structure=struc_kernal)
+    mixed = np.sum(labeled, axis=0, dtype= np.uint8)
+    for _ in range(num_islands):
+        island_index = _+1
+        class_rand = random.randint(1,2)
+        island_mask = island_labeled == island_index
+        np.putmask(mixed, island_mask, class_rand)
+
+        cyx_cube = np.moveaxis(np.empty(hsis[0].shape, dtype=bool), 2, 0)
+        cyx_cube[:,:,:] = island_mask
+        yxc_cube = np.moveaxis(cyx_cube, 0, -1)
+        np.putmask(hsi_mix, yxc_cube, hsis[class_rand-1])
+
+    # direct_map(mixed, labeled[0], labeled[1])
+    return mixed, hsi_mix
+
+def direct_map(*arrays):
+    for ind, arr in enumerate(arrays):
+        arr = np.where(arr==0, 17, arr)
+        arr = arr[:,:]-1
+        rav = np.ravel(arr)
+        color = list_to_colormap(rav)
+        color = np.reshape(color, (arr.shape[0], arr.shape[1], 3))
+        classification_map(color, arr, 300, str(ind) + '.png')
+
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     PATH = r'../data/'
+    CUT_SIZE = (400, 400)
     spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 
-    labeled1 = label_preprocess(PATH+r'hct8/masks/1018_2_hct8.png', 1)
-    labeled2 = label_preprocess(PATH+r'nih3t3/masks/1018_2_nih3t3.png', 2)
-    hsi_1 = envi.open(PATH+r'hct8/1018_2_processed_fixed' + ".hdr" , PATH+r'hct8/1018_2_processed_fixed' + ".raw")
-    hsi_2 = envi.open(PATH+r'nih3t3/1018_2_processed_fixed' + ".hdr" , PATH+r'nih3t3/1018_2_processed_fixed' + ".raw")
+    data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
+            (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
 
-    print(labeled2.shape)
-    print(hsi_1.shape)
-    lb, hsi = cut_combine((300,200), (labeled1, hsi_1, (0,0)), (labeled2, hsi_2, (0,0)))
-    print(lb.shape, hsi.shape)
+    for _ in range(len(data)):
+        label_path, hsi_path, anchor = data[_]
+        labeled = label_preprocess(PATH+label_path, _+1)  # auto labeling
+        hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+        data[_] = (labeled, hsi, anchor)
+    
+    gt_hsi, data_hsi = cut_merge(CUT_SIZE, *data)
+    # print(gt_hsi.shape, data_hsi.shape)
+
+    # x = np.array(
+    #     [[0, 0, 0, 1, 0, 0],
+    #     [0, 0, 0, 1, 0, 0],
+    #     [0, 0, 0, 1, 0, 0],
+    #     [0, 0, 1, 1, 1, 0],
+    #     [0, 1, 1, 1, 1, 0],
+    #     [0, 0, 1, 1, 1, 0]])
+    
+    # x2 = np.array(
+    #     [[0, 0, 0, 0, 0, 0],
+    #     [0, 0, 0, 0, 0, 0],
+    #     [0, 0, 0, 0, 0, 0],
+    #     [0, 0, 1, 1, 0, 1],
+    #     [0, 0, 1, 1, 1, 1],
+    #     [1, 1, 1, 1, 1, 1]])
+
+    # islands = np.array(
+    #     [[1, 1, 1, 1, 0, 0],
+    #     [1, 1, 0, 0, 1, 0],
+    #     [1, 1, 0, 0, 1, 0],
+    #     [0, 1, 0, 0, 1, 0],
+    #     [0, 0, 0, 0, 0, 0],
+    #     [0, 1, 1, 0, 0, 1]])
+
+    # T = 3
+    # testexp = np.arange(9).reshape((3,3))
+    # print(testexp, testexp.shape)
+    # cube = np.empty((T,3,3), dtype=bool)
+    # cube[:,:,:] = testexp
+    # print(cube)
+
+    # over = np.logical_and(x, x2).astype(np.uint8)
+    # print(over)

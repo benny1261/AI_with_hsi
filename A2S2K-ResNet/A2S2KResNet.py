@@ -26,7 +26,7 @@ VERIFY: bool = False
 PATH = r'../data/'
 data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
-CUT_SIZE = (300, 200)
+CUT_SIZE = (400, 400)
 REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
 ITER: int = 1
@@ -57,7 +57,7 @@ def load_dataset(data): # originally parameters are used for decide which data t
             hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
             data[_] = (labeled, hsi, anchor)
 
-        gt_hsi, data_hsi = Utils.cut_combine(CUT_SIZE, *data)
+        gt_hsi, data_hsi = Utils.cut_merge(CUT_SIZE, *data)
         print(gt_hsi.shape, data_hsi.shape)
 
     shapeorig = data_hsi.shape
