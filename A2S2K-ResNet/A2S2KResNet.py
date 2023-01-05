@@ -13,7 +13,7 @@ from sklearn import metrics, preprocessing
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 import torch_optimizer as optim2
-from torchsummary import summary
+from torchinfo import summary
 import spectral
 from spectral.io import envi
 
@@ -467,7 +467,7 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
 
 
 model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-summary(model, input_size=(1, img_rows, img_cols, BANDS))
+summary(model, input_size=(1, img_rows, img_cols, BANDS), batch_dim= 0, verbose = 1)
 
 # Training ----------------------------------------------------------
 for index_iter in range(ITER):
