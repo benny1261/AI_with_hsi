@@ -17,7 +17,7 @@ def sampling(proportion, ground_truth):
     train = {}
     test = {}
     labels_loc = {}
-    m = max(ground_truth)
+    m = len(np.unique(ground_truth))-1
     for i in range(m):
         indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1] # will not take background:0 into account
         np.random.shuffle(indexes)
