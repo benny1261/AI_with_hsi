@@ -17,7 +17,7 @@ def sampling(proportion, ground_truth):
     train = {}
     test = {}
     labels_loc = {}
-    m = max(ground_truth)
+    m = len(np.unique(ground_truth))-1
     for i in range(m):
         indexes = [j for j, x in enumerate(ground_truth.ravel().tolist())if x == i + 1] # will not take background:0 into account
         np.random.shuffle(indexes)
@@ -54,11 +54,11 @@ def list_to_colormap(x_list):
     y = np.zeros((x_list.shape[0], 3))
     for index, item in enumerate(x_list):
         if item == 0:
-            y[index] = np.array([255, 0, 0]) / 255.
+            y[index] = np.array([255, 50, 50]) / 255.   # changed
         if item == 1:
-            y[index] = np.array([0, 255, 0]) / 255.
+            y[index] = np.array([50, 255, 50]) / 255.   # changed
         if item == 2:
-            y[index] = np.array([0, 0, 255]) / 255.
+            y[index] = np.array([50, 50, 255]) / 255.   # changed
         if item == 3:
             y[index] = np.array([255, 255, 0]) / 255.
         if item == 4:
@@ -120,12 +120,25 @@ def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
     print('------Get classification maps successful-------')
 
 def label_preprocess(file_path: str, label: int) -> list:
-    '''image to numpy array with pixel value replaces by intergers representing its class, dtype=uint8'''
+    '''image to numpy array with pixel value replaces by intergers representing its class, dtype=uint8
+    \n used for non-premixed samples'''
     _ = np.asarray(Image.open(file_path))   # this will make an 2D array with all nonzeros=1
     return _*label
 
-def cut_hstack(size:tuple, *data) -> tuple :
-    '''param: *data = (grayscaleimage, hsi, (anchor_y, anchor_x))
+def label_transfer(file_path: str) -> list:
+    '''used for transfer premixed colored groundtruth into class label represented in uint8'''
+    _ = Image.open(file_path)
+    _ = _.convert('RGB')
+    # _.show()
+    labeled = []
+    arr = np.asarray(_)                                                     # shape = (y,x,3)
+    labeled.append(np.all(arr == (255,50,50), axis= -1).astype(np.uint8))   # class 1, shape = (y,x)
+    labeled.append(np.all(arr == (50,255,50), axis= -1).astype(np.uint8)*2) # class 2
+
+    return np.sum(labeled, axis=0, dtype= np.uint8)
+
+def cut_hstack(size:tuple, data) -> tuple :
+    '''param: data = list of (grayscaleimage, hsi, (anchor_y, anchor_x))
     \n ret: ground truth stack, hsi stack
     '''
     y_len, x_len = size
@@ -139,8 +152,8 @@ def cut_hstack(size:tuple, *data) -> tuple :
     hsi_stack = np.hstack(hsis)
     return lab_stack, hsi_stack
 
-def cut_merge(size:tuple, *data) -> tuple :
-    '''param: *data = (grayscaleimage, hsi, (anchor_y, anchor_x))
+def cut_merge(size:tuple, data) -> tuple :
+    '''param: data = list of (grayscaleimage, hsi, (anchor_y, anchor_x))
     \n ret: ground truth merge, hsi merge
     '''
     HSI_ORIG_BANDS = 150
@@ -178,6 +191,7 @@ def cut_merge(size:tuple, *data) -> tuple :
     return mixed, hsi_mix
 
 def direct_map(*arrays):
+    '''used for quick visualizing label or predictions'''
     for ind, arr in enumerate(arrays):
         arr = np.where(arr==0, 17, arr)
         arr = arr[:,:]-1
@@ -189,51 +203,18 @@ def direct_map(*arrays):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     PATH = r'../data/'
-    CUT_SIZE = (400, 400)
+    CUT_SIZE = (1000, 2000)
     spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 
-    data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
-            (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
+    data = (r'/mix/masks/1214_20x_wbc+A549_3.png', r'/mix/1214_20x_wbc+A549_3')
 
-    for _ in range(len(data)):
-        label_path, hsi_path, anchor = data[_]
-        labeled = label_preprocess(PATH+label_path, _+1)  # auto labeling
-        hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
-        data[_] = (labeled, hsi, anchor)
-    
-    gt_hsi, data_hsi = cut_merge(CUT_SIZE, *data)
-    # print(gt_hsi.shape, data_hsi.shape)
+    # for _ in range(len(data)):
+    #     label_path, hsi_path, anchor = data[_]
+    #     labeled = label_preprocess(PATH+label_path, _+1)  # auto labeling
+    #     hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+    #     data[_] = (labeled, hsi, anchor)
 
-    # x = np.array(
-    #     [[0, 0, 0, 1, 0, 0],
-    #     [0, 0, 0, 1, 0, 0],
-    #     [0, 0, 0, 1, 0, 0],
-    #     [0, 0, 1, 1, 1, 0],
-    #     [0, 1, 1, 1, 1, 0],
-    #     [0, 0, 1, 1, 1, 0]])
-    
-    # x2 = np.array(
-    #     [[0, 0, 0, 0, 0, 0],
-    #     [0, 0, 0, 0, 0, 0],
-    #     [0, 0, 0, 0, 0, 0],
-    #     [0, 0, 1, 1, 0, 1],
-    #     [0, 0, 1, 1, 1, 1],
-    #     [1, 1, 1, 1, 1, 1]])
-
-    # islands = np.array(
-    #     [[1, 1, 1, 1, 0, 0],
-    #     [1, 1, 0, 0, 1, 0],
-    #     [1, 1, 0, 0, 1, 0],
-    #     [0, 1, 0, 0, 1, 0],
-    #     [0, 0, 0, 0, 0, 0],
-    #     [0, 1, 1, 0, 0, 1]])
-
-    # T = 3
-    # testexp = np.arange(9).reshape((3,3))
-    # print(testexp, testexp.shape)
-    # cube = np.empty((T,3,3), dtype=bool)
-    # cube[:,:,:] = testexp
-    # print(cube)
-
-    # over = np.logical_and(x, x2).astype(np.uint8)
-    # print(over)
+    # _ = np.asarray(Image.open(PATH+data[0]))
+    # print(_.shape)
+    gt_hsi = label_transfer(PATH+data[0])
+    data_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")

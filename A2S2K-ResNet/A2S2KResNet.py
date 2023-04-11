@@ -13,7 +13,7 @@ from sklearn import metrics, preprocessing
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 import torch_optimizer as optim2
-from torchsummary import summary
+from torchinfo import summary
 import spectral
 from spectral.io import envi
 
@@ -24,8 +24,9 @@ import Utils
 # Setting Parameters ------------------------------------------------
 VERIFY: bool = False
 PATH = r'../data/'
-data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
-        (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
+# data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
+#         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
+data = (r'/mix/masks/1214_20x_wbc+A549_3.png', r'/mix/1214_20x_wbc+A549_3')
 CUT_SIZE = (400, 400)
 REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
@@ -51,13 +52,17 @@ def load_dataset(data): # originally parameters are used for decide which data t
         gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
     else:
         spectral.settings.envi_support_nonlowercase_params = 'TRUE'
-        for _ in range(len(data)):
-            label_path, hsi_path, anchor = data[_]
-            labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
-            hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
-            data[_] = (labeled, hsi, anchor)
 
-        gt_hsi, data_hsi = Utils.cut_merge(CUT_SIZE, *data)
+        # for _ in range(len(data)):
+        #     label_path, hsi_path, anchor = data[_]
+        #     labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
+        #     hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+        #     data[_] = (labeled, hsi, anchor)
+        # gt_hsi, data_hsi = Utils.cut_merge(CUT_SIZE, data)
+
+        gt_hsi = Utils.label_transfer(PATH+data[0])
+        envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
+        data_hsi = envi_hsi.load()
         print(gt_hsi.shape, data_hsi.shape)
 
     shapeorig = data_hsi.shape
@@ -462,7 +467,7 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
 
 
 model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-summary(model, input_size=(1, img_rows, img_cols, BANDS))
+summary(model, input_size=(1, img_rows, img_cols, BANDS), batch_dim= 0, verbose = 1)
 
 # Training ----------------------------------------------------------
 for index_iter in range(ITER):
