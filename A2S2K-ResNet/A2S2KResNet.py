@@ -39,10 +39,6 @@ OPTIM = 'adam'
 EPOCH: int = 40
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
-# Data Loading ------------------------------------------------------
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("training on ", device)
-
 def load_dataset(data): # originally parameters are used for decide which data to load
 
     if VERIFY:
@@ -74,32 +70,6 @@ def load_dataset(data): # originally parameters are used for decide which data t
 
     nonzero_number_size = np.count_nonzero(gt_hsi)      # 10249 in example
     return data_hsi, gt_hsi, nonzero_number_size
-
-os.chdir(os.path.dirname(__file__))
-data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data)
-data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
-gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
-
-# Passive Params-----------------------------------------------------
-img_rows = 2 * PATCH_LENGTH + 1
-img_cols = 2 * PATCH_LENGTH + 1
-BANDS = data_hsi.shape[2]
-ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
-CLASSES_NUM = len(np.unique(gt))-1
-print('The class numbers of the HSI data is:', CLASSES_NUM)
-
-# Container Params---------------------------------------------------
-KAPPA = []
-OA = []
-AA = []
-TRAINING_TIME = []
-TESTING_TIME = []
-ELEMENT_ACC = np.zeros((ITER, CLASSES_NUM))
-
-data = preprocessing.scale(data)            # standardize, equivalent to (X-X_mean)/X_std
-whole_data = data.reshape(data_hsi.shape[0], data_hsi.shape[1], data_hsi.shape[2])  # shape back
-# pad before convolution to prevent decrease spatial dimension length
-padded_data = np.lib.pad(whole_data, ((PATCH_LENGTH, PATCH_LENGTH), (PATCH_LENGTH, PATCH_LENGTH),(0, 0)),'constant',constant_values=0)
 
 # Model -------------------------------------------------------------
 class ChannelSELayer3D(nn.Module):
@@ -465,95 +435,125 @@ def train(net, train_iter, valida_iter, loss, optimizer, device, epochs, early_s
     print('epoch %d, loss %.4f, train acc %.3f, time %.1f sec'
         % (epoch + 1, train_l_sum / batch_count, train_acc_sum / n, time.time() - start))
 
+if __name__ == "__main__":
 
-model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-summary(model, input_size=(1, img_rows, img_cols, BANDS), batch_dim= 0, verbose = 1)
+    # Data Loading ------------------------------------------------------
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("training on ", device)
+    os.chdir(os.path.dirname(__file__))
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data)
+    data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
+    gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
-# Training ----------------------------------------------------------
-for index_iter in range(ITER):
-    #define the model
-    net = S3KAIResNet(BANDS, CLASSES_NUM, 2)
+    # Passive Params-----------------------------------------------------
+    img_rows = 2 * PATCH_LENGTH + 1
+    img_cols = 2 * PATCH_LENGTH + 1
+    BANDS = data_hsi.shape[2]
+    ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
+    CLASSES_NUM = len(np.unique(gt))-1
+    print('The class numbers of the HSI data is:', CLASSES_NUM)
 
-    if OPTIM == 'diffgrad':
-        optimizer = optim2.DiffGrad(
-            net.parameters(),
-            lr=lr,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-            weight_decay=0)  # weight_decay=0.0001)
-    if OPTIM == 'adam':
-        optimizer = optim.Adam(
-            net.parameters(),
-            lr=lr,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-            weight_decay=0)
-    time_1 = int(time.time())
-    np.random.seed(seeds[index_iter])
+    # Container Params---------------------------------------------------
+    KAPPA = []
+    OA = []
+    AA = []
+    TRAINING_TIME = []
+    TESTING_TIME = []
+    ELEMENT_ACC = np.zeros((ITER, CLASSES_NUM))
 
-    train_indices, test_indices = Utils.sampling(VALIDATION_SPLIT, gt)
-    _, total_indices = Utils.sampling(1, gt)
+    data = preprocessing.scale(data)            # standardize, equivalent to (X-X_mean)/X_std
+    whole_data = data.reshape(data_hsi.shape[0], data_hsi.shape[1], data_hsi.shape[2])  # shape back
+    # pad before convolution to prevent decrease spatial dimension length
+    padded_data = np.lib.pad(whole_data, ((PATCH_LENGTH, PATCH_LENGTH), (PATCH_LENGTH, PATCH_LENGTH),(0, 0)),'constant',constant_values=0)
 
-    TRAIN_SIZE = len(train_indices)
-    print('Train size: ', TRAIN_SIZE)
-    TEST_SIZE = TOTAL_SIZE - TRAIN_SIZE
-    print('Test size: ', TEST_SIZE)
-    VAL_SIZE = int(TRAIN_SIZE)
-    print('Validation size: ', VAL_SIZE)
+    model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
+    summary(model, input_size=(1, img_rows, img_cols, BANDS), batch_dim= 0, verbose = 1)
 
-    # Pytorch DataLoader
-    train_iter, valida_iter, test_iter, all_iter = geniter.generate_iter(
-        TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE,
-        total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BANDS, batch_size, gt)
+    # Training ----------------------------------------------------------
+    for index_iter in range(ITER):
+        #define the model
+        net = S3KAIResNet(BANDS, CLASSES_NUM, 2)
 
-    print(f'------training({index_iter+1}/{ITER})------')
-    tic1 = time.time()
-    train(net, train_iter, valida_iter, loss, optimizer, device, epochs= EPOCH)
-    toc1 = time.time()
+        if OPTIM == 'diffgrad':
+            optimizer = optim2.DiffGrad(
+                net.parameters(),
+                lr=lr,
+                betas=(0.9, 0.999),
+                eps=1e-8,
+                weight_decay=0)  # weight_decay=0.0001)
+        if OPTIM == 'adam':
+            optimizer = optim.Adam(
+                net.parameters(),
+                lr=lr,
+                betas=(0.9, 0.999),
+                eps=1e-8,
+                weight_decay=0)
+        time_1 = int(time.time())
+        np.random.seed(seeds[index_iter])
 
-    pred_test = []
-    tic2 = time.time()
-    with torch.no_grad():
-        for X, y in test_iter:
-            # print('Shape of X', X.shape, 'Shape of y', y.shape)
-            # X = X.permute(0, 3, 1, 2)
-            X = X.to(device)
-            net.eval()
-            y_hat = net(X)
-            pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
-    toc2 = time.time()
-    collections.Counter(pred_test)
-    gt_test = gt[test_indices] - 1
+        train_indices, test_indices = Utils.sampling(VALIDATION_SPLIT, gt)
+        _, total_indices = Utils.sampling(1, gt)
 
-    overall_acc = metrics.accuracy_score(pred_test, gt_test[:-VAL_SIZE])
-    confusion_matrix = metrics.confusion_matrix(pred_test, gt_test[:-VAL_SIZE])
-    each_acc, average_acc = record.aa_and_each_accuracy(confusion_matrix)
-    kappa = metrics.cohen_kappa_score(pred_test, gt_test[:-VAL_SIZE])
+        TRAIN_SIZE = len(train_indices)
+        print('Train size: ', TRAIN_SIZE)
+        TEST_SIZE = TOTAL_SIZE - TRAIN_SIZE
+        print('Test size: ', TEST_SIZE)
+        VAL_SIZE = int(TRAIN_SIZE)
+        print('Validation size: ', VAL_SIZE)
 
-    if not os.path.exists('models'):
-        os.makedirs('models')
-    torch.save(
-        net.state_dict(), "./models/" + 'split_' + str(VALIDATION_SPLIT) + '_lr_' + str(lr) + '_'
-        + OPTIM + '_kernel_' + str(KERNEL_SIZE) + '_' + str(round(overall_acc, 3)) + '.pt')
-    KAPPA.append(kappa)
-    OA.append(overall_acc)
-    AA.append(average_acc)
-    TRAINING_TIME.append(toc1 - tic1)
-    TESTING_TIME.append(toc2 - tic2)
-    ELEMENT_ACC[index_iter, :] = each_acc
+        # Pytorch DataLoader
+        train_iter, valida_iter, test_iter, all_iter = geniter.generate_iter(
+            TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE,
+            total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BANDS, batch_size, gt)
 
-# Map & Records
-print("--------" + " Training Finished-----------")
-if not os.path.exists('report'):
-    os.makedirs('report')
-record.record_output(
-    OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME,
-    './report/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) + '_lr' +
-    str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE) + '.txt')
+        print(f'------training({index_iter+1}/{ITER})------')
+        tic1 = time.time()
+        train(net, train_iter, valida_iter, loss, optimizer, device, epochs= EPOCH)
+        toc1 = time.time()
 
-if not os.path.exists('classification_maps'):
-    os.makedirs('classification_maps')
-Utils.generate_png(
-    all_iter, net, gt_hsi, device, total_indices,
-    './classification_maps/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) +
-    '_lr' + str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE))
+        pred_test = []
+        tic2 = time.time()
+        with torch.no_grad():
+            for X, y in test_iter:
+                # print('Shape of X', X.shape, 'Shape of y', y.shape)
+                # X = X.permute(0, 3, 1, 2)
+                X = X.to(device)
+                net.eval()
+                y_hat = net(X)
+                pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
+        toc2 = time.time()
+        collections.Counter(pred_test)
+        gt_test = gt[test_indices] - 1
+
+        overall_acc = metrics.accuracy_score(pred_test, gt_test[:-VAL_SIZE])
+        confusion_matrix = metrics.confusion_matrix(pred_test, gt_test[:-VAL_SIZE])
+        each_acc, average_acc = record.aa_and_each_accuracy(confusion_matrix)
+        kappa = metrics.cohen_kappa_score(pred_test, gt_test[:-VAL_SIZE])
+
+        if not os.path.exists('models'):
+            os.makedirs('models')
+        torch.save(
+            net.state_dict(), "./models/" + 'split' + str(VALIDATION_SPLIT) + '_lr' + str(lr) + '_' + OPTIM + '_kernel'
+            + str(KERNEL_SIZE) + '_bands' + str(BANDS) + '_classes' + str(CLASSES_NUM) + '_' + str(round(overall_acc, 3)) + '.pt')
+        KAPPA.append(kappa)
+        OA.append(overall_acc)
+        AA.append(average_acc)
+        TRAINING_TIME.append(toc1 - tic1)
+        TESTING_TIME.append(toc2 - tic2)
+        ELEMENT_ACC[index_iter, :] = each_acc
+
+    # Map & Records
+    print("--------" + " Training Finished-----------")
+    if not os.path.exists('report'):
+        os.makedirs('report')
+    record.record_output(
+        OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME,
+        './report/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) + '_lr' +
+        str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE) + '.txt')
+
+    if not os.path.exists('classification_maps'):
+        os.makedirs('classification_maps')
+    Utils.generate_png(
+        all_iter, net, gt_hsi, device, total_indices,
+        './classification_maps/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) +
+        '_lr' + str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE))
