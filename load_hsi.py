@@ -4,6 +4,7 @@ import spectral
 import cv2
 import numpy as np
 import glob
+import shutil
 
 OUTPUT_CHANNEL = 50
 DEFECTIVE_THRESHOLD = 10
@@ -60,7 +61,7 @@ else:
             arrc = delete_defective(arr.copy())
             envi.save_image(name+'_fixed.hdr', arrc, interleave = "bsq", ext = "raw")
             # use original hdr file to enable imec software reading
-            os.system(f'copy {name}.hdr {name}_fixed.hdr')
+            shutil.copy2(name+'.hdr', name+'_fixed.hdr')            # this will overwrite file if exists
             export_img = arrc
 
         img_gray = cv2.normalize(export_img[:,:,OUTPUT_CHANNEL], None,0,255, cv2.NORM_MINMAX, cv2.CV_8UC1)
