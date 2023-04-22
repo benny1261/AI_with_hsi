@@ -29,7 +29,6 @@ def aa_and_each_accuracy(confusion_matrix):
     return each_acc, average_acc
 
 
-
 def record_output(oa_ae, aa_ae, kappa_ae, element_acc_ae, training_time_ae, testing_time_ae, path):
     f = open(path, 'a')     # append, write only
     sentence0 = 'OAs for each iteration are:' + str(oa_ae) + '\n'
@@ -44,8 +43,9 @@ def record_output(oa_ae, aa_ae, kappa_ae, element_acc_ae, training_time_ae, test
     f.write(sentence4)
     sentence5 = 'mean_KAPPA ± std_KAPPA is: ' + str(np.mean(kappa_ae)) + ' ± ' + str(np.std(kappa_ae)) + '\n' + '\n'
     f.write(sentence5)
-    sentence6 = 'Total average Training time is: ' + str(np.sum(training_time_ae)) + '\n'
-    f.write(sentence6)
+    if training_time_ae != None:
+        sentence6 = 'Total average Training time is: ' + str(np.sum(training_time_ae)) + '\n'
+        f.write(sentence6)
     sentence7 = 'Total average Testing time is: ' + str(np.sum(testing_time_ae)) + '\n' + '\n'
     f.write(sentence7)
     element_mean = np.mean(element_acc_ae, axis=0)

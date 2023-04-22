@@ -1,14 +1,17 @@
 import os
 import re
+import time
 import torch
 import torch.utils.data as Data
 # import torch.nn as nn
 # import torch.nn.functional as F
 # import torch.optim as optim
 import numpy as np
-from sklearn import preprocessing
+from sklearn import preprocessing, metrics
+import collections
 
 import Utils
+import record
 import geniter
 from A2S2KResNet import S3KAIResNet, load_dataset, PATCH_LENGTH
 
@@ -24,11 +27,12 @@ def extract_parameters(model_name: str):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
     # PATH = r'../data'
-    data = (r'/mix/masks/1214_20x_wbc+A549_3.png', r'/mix/1214_20x_wbc+A549_3')
+    data = (r'/mix/masks/20x_wbc+A549_0.png', r'/mix/20x_wbc+A549_0')
     MODEL = 'split0.9_lr0.001_adam_kernel24_bands30_classes2_0.999.pt'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32
+    ITER : int = 1
 
     # Data Loading ------------------------------------------------------
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -75,4 +79,39 @@ if __name__ == '__main__':
         num_workers=0,
     )
 
-    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, '')
+    KAPPA = []
+    OA = []
+    AA = []
+    TESTING_TIME = []
+    ELEMENT_ACC = np.zeros((ITER, CLASSES_NUM))
+
+    for index_iter in range(ITER):
+        pred_test = []
+        tic = time.time()
+        with torch.no_grad():
+            for X, y in all_iter:
+                # print('Shape of X', X.shape, 'Shape of y', y.shape)
+                # X = X.permute(0, 3, 1, 2)
+                X = X.to(device)
+                model.eval()
+                y_hat = model(X)
+                pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
+        toc = time.time()
+        collections.Counter(pred_test)
+        gt_test = gt[total_indices] - 1
+
+        overall_acc = metrics.accuracy_score(pred_test, gt_test)
+        confusion_matrix = metrics.confusion_matrix(pred_test, gt_test)
+        each_acc, average_acc = record.aa_and_each_accuracy(confusion_matrix)
+        kappa = metrics.cohen_kappa_score(pred_test, gt_test)
+
+        KAPPA.append(kappa)
+        OA.append(overall_acc)
+        AA.append(average_acc)
+        TESTING_TIME.append(toc - tic)
+        ELEMENT_ACC[index_iter, :] = each_acc
+
+    record.record_output(
+        OA, AA, KAPPA, ELEMENT_ACC, None, TESTING_TIME,
+        r'./result/' + MODEL.replace('.pt','.txt'))
+    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/')
