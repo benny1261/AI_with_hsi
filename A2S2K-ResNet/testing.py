@@ -13,22 +13,24 @@ import collections
 import Utils
 import record
 import geniter
-from A2S2KResNet import S3KAIResNet, load_dataset, PATCH_LENGTH
+from A2S2KResNet import S3KAIResNet, load_dataset
 
 def extract_parameters(model_name: str):
     '''used to extract parameters from saved model file name'''
 
     key_bands = 'bands'
     key_classes = 'classes'
+    key_window = 'window'
     bands = int(re.compile(f'(?<={key_bands})\d+').search(model_name).group())
     classes = int(re.compile(f'(?<={key_classes})\d+').search(model_name).group())
-    return bands, classes
+    patch_length = int((int(re.compile(f'(?<={key_window})\d+').search(model_name).group())-1)/2)
+    return bands, classes, patch_length
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
     # PATH = r'../data'
-    data = (r'/mix/masks/20x_wbc+A549_0.png', r'/mix/20x_wbc+A549_0')
-    MODEL = 'split0.9_lr0.001_adam_kernel24_bands30_classes2_0.999.pt'
+    data = (r'/mix/masks/10xapo_wbc+A549_1.png', r'/mix/10xapo_wbc+A549_1')
+    MODEL = 'window9_split0.9_lr0.001_adam_kernel24_bands150_classes2_0.994.pt'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32
@@ -44,13 +46,13 @@ if __name__ == '__main__':
     BANDS = data_hsi.shape[2]
     ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
     CLASSES_NUM = len(np.unique(gt))-1
+    model_band, model_class, PATCH_LENGTH = extract_parameters(MODEL)
 
     data = preprocessing.scale(data)            # standardize, equivalent to (X-X_mean)/X_std
     whole_data = data.reshape(data_hsi.shape[0], data_hsi.shape[1], data_hsi.shape[2])          # shape back
     padded_data = np.lib.pad(whole_data, ((PATCH_LENGTH, PATCH_LENGTH), (PATCH_LENGTH, PATCH_LENGTH),(0, 0)),'constant',constant_values=0)
 
     # load model --------------------------------------------------------
-    model_band, model_class = extract_parameters(MODEL)
     if any((model_band != BANDS, model_class != CLASSES_NUM)):
         raise Exception("input data do not match model parameters")
     model = S3KAIResNet(BANDS, CLASSES_NUM, 2)
@@ -111,7 +113,9 @@ if __name__ == '__main__':
         TESTING_TIME.append(toc - tic)
         ELEMENT_ACC[index_iter, :] = each_acc
 
+    if not os.path.exists('result'):
+        os.makedirs('result')
     record.record_output(
         OA, AA, KAPPA, ELEMENT_ACC, None, TESTING_TIME,
         r'./result/' + MODEL.replace('.pt','.txt'))
-    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/')
+    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/test')

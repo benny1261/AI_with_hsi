@@ -26,17 +26,17 @@ VERIFY: bool = False
 PATH = r'../data/'
 # data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
 #         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
-data = (r'/mix/masks/1214_20x_wbc+A549_3.png', r'/mix/1214_20x_wbc+A549_3')
+data = (r'/mix/masks/10xapo_wbc+A549_0.png', r'/mix/10xapo_wbc+A549_0')
 CUT_SIZE = (400, 400)
 REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
 ITER: int = 1
-PATCH_LENGTH: int = 4
+PATCH_LENGTH: int = 3
 KERNEL_SIZE: int = 24
 lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
-EPOCH: int = 40
+EPOCH: int = 30
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
 def load_dataset(data): # originally parameters are used for decide which data to load
@@ -61,12 +61,12 @@ def load_dataset(data): # originally parameters are used for decide which data t
         data_hsi = envi_hsi.load()
         print(gt_hsi.shape, data_hsi.shape)
 
-    shapeorig = data_hsi.shape
-    data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
-    data_hsi = PCA(n_components=REMAIN_BAND).fit_transform(data_hsi)
-    shapeorig = np.array(shapeorig)                         # turn tuple into list -> value assignable
-    shapeorig[-1] = REMAIN_BAND
-    data_hsi = data_hsi.reshape(shapeorig)
+    # shapeorig = data_hsi.shape
+    # data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
+    # data_hsi = PCA(n_components=REMAIN_BAND).fit_transform(data_hsi)
+    # shapeorig = np.array(shapeorig)                         # turn tuple into list -> value assignable
+    # shapeorig[-1] = REMAIN_BAND
+    # data_hsi = data_hsi.reshape(shapeorig)
 
     nonzero_number_size = np.count_nonzero(gt_hsi)      # 10249 in example
     return data_hsi, gt_hsi, nonzero_number_size
@@ -533,8 +533,8 @@ if __name__ == "__main__":
         if not os.path.exists('models'):
             os.makedirs('models')
         torch.save(
-            net.state_dict(), "./models/" + 'split' + str(VALIDATION_SPLIT) + '_lr' + str(lr) + '_' + OPTIM + '_kernel'
-            + str(KERNEL_SIZE) + '_bands' + str(BANDS) + '_classes' + str(CLASSES_NUM) + '_' + str(round(overall_acc, 3)) + '.pt')
+            net.state_dict(), "./models/" + 'window'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+ '_lr' + str(lr)+ '_' + OPTIM+ '_kernel'
+            + str(KERNEL_SIZE)+ '_bands'+ str(BANDS)+ '_classes'+ str(CLASSES_NUM)+ '_'+ str(round(overall_acc, 3))+ '.pt')
         KAPPA.append(kappa)
         OA.append(overall_acc)
         AA.append(average_acc)
