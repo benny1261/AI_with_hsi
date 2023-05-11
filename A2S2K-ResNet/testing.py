@@ -21,24 +21,27 @@ def extract_parameters(model_name: str):
     key_bands = 'bands'
     key_classes = 'classes'
     key_window = 'window'
+    key_denom = 'denom'
     bands = int(re.compile(f'(?<={key_bands})\d+').search(model_name).group())
     classes = int(re.compile(f'(?<={key_classes})\d+').search(model_name).group())
     patch_length = int((int(re.compile(f'(?<={key_window})\d+').search(model_name).group())-1)/2)
-    return bands, classes, patch_length
+    denom = int(re.compile(f'(?<={key_denom})\d+').search(model_name).group())
+    return bands, classes, patch_length, denom
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
     # PATH = r'../data'
-    data = (r'/mix/masks/10xapo_wbc+A549_1.png', r'/mix/10xapo_wbc+A549_1')
-    MODEL = 'window9_split0.9_lr0.001_adam_kernel24_bands150_classes2_0.994.pt'
+    data = (r'/flou/masks/wbc+ht29epcam_1_hsi.png', r'/flou/wbc+ht29epcam_1')
+    MODEL = "window7_split0.9_lr0.001_adam_kernel24_bands30_classes2_denom5_0.975.pt"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32
     ITER : int = 1
 
+    model_band, model_class, PATCH_LENGTH, model_denom= extract_parameters(MODEL)
     # Data Loading ------------------------------------------------------
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data)
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, model_denom)
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
@@ -46,7 +49,6 @@ if __name__ == '__main__':
     BANDS = data_hsi.shape[2]
     ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
     CLASSES_NUM = len(np.unique(gt))-1
-    model_band, model_class, PATCH_LENGTH = extract_parameters(MODEL)
 
     data = preprocessing.scale(data)            # standardize, equivalent to (X-X_mean)/X_std
     whole_data = data.reshape(data_hsi.shape[0], data_hsi.shape[1], data_hsi.shape[2])          # shape back

@@ -26,7 +26,7 @@ VERIFY: bool = False
 PATH = r'../data/'
 # data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
 #         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
-data = (r'/mix/masks/10xapo_wbc+A549_0.png', r'/mix/10xapo_wbc+A549_0')
+data = (r'/flou/masks/wbc+ht29epcam_0_hsi.png', r'/flou/wbc+ht29epcam_0')
 CUT_SIZE = (400, 400)
 REMAIN_BAND: int = 30            # number of channels to keep
 VALIDATION_SPLIT = 0.9
@@ -37,9 +37,10 @@ lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
 EPOCH: int = 30
+DENOMINATOR: int = 5
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
-def load_dataset(data): # originally parameters are used for decide which data to load
+def load_dataset(data, denom:int= 1): # originally parameters are used for decide which data to load
 
     if VERIFY:
         mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
@@ -59,7 +60,7 @@ def load_dataset(data): # originally parameters are used for decide which data t
         gt_hsi = Utils.label_transfer(PATH+data[0])
         envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
         data_hsi = envi_hsi.load()
-        print(gt_hsi.shape, data_hsi.shape)
+        print('orig gt shape:',gt_hsi.shape, 'orig hsi shape:', data_hsi.shape)
 
     # shapeorig = data_hsi.shape
     # data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
@@ -68,8 +69,11 @@ def load_dataset(data): # originally parameters are used for decide which data t
     # shapeorig[-1] = REMAIN_BAND
     # data_hsi = data_hsi.reshape(shapeorig)
 
+    selected = Utils.simple_select(data_hsi, denom)
+    print('selected shape:', selected.shape)
+
     nonzero_number_size = np.count_nonzero(gt_hsi)      # 10249 in example
-    return data_hsi, gt_hsi, nonzero_number_size
+    return selected, gt_hsi, nonzero_number_size
 
 # Model -------------------------------------------------------------
 class ChannelSELayer3D(nn.Module):
@@ -441,7 +445,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
     os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data)
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR)
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
@@ -533,8 +537,8 @@ if __name__ == "__main__":
         if not os.path.exists('models'):
             os.makedirs('models')
         torch.save(
-            net.state_dict(), "./models/" + 'window'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+ '_lr' + str(lr)+ '_' + OPTIM+ '_kernel'
-            + str(KERNEL_SIZE)+ '_bands'+ str(BANDS)+ '_classes'+ str(CLASSES_NUM)+ '_'+ str(round(overall_acc, 3))+ '.pt')
+            net.state_dict(), "./models/"+ 'window'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+ '_lr'+ str(lr)+ '_'+ OPTIM+ '_kernel'
+            + str(KERNEL_SIZE)+ '_bands'+ str(BANDS)+ '_classes'+ str(CLASSES_NUM)+ '_denom'+ str(DENOMINATOR)+'_'+ str(round(overall_acc, 3))+ '.pt')
         KAPPA.append(kappa)
         OA.append(overall_acc)
         AA.append(average_acc)
@@ -548,12 +552,12 @@ if __name__ == "__main__":
         os.makedirs('report')
     record.record_output(
         OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME,
-        './report/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) + '_lr' +
-        str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE) + '.txt')
+        './report/'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+ '_lr'+ str(lr)+ '_'+ OPTIM+ '_kernel'
+        + str(KERNEL_SIZE)+ '_denom'+ str(DENOMINATOR)+ '.txt')
 
     if not os.path.exists('classification_maps'):
         os.makedirs('classification_maps')
     Utils.generate_png(
         all_iter, net, gt_hsi, device, total_indices,
-        './classification_maps/' + str(img_rows) + '_' + 'split' + str(VALIDATION_SPLIT) +
-        '_lr' + str(lr) + '_' + OPTIM + '_kernel' + str(KERNEL_SIZE))
+        './classification_maps/'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+'_lr'+ str(lr)+ '_'+ OPTIM+ '_kernel'
+        + str(KERNEL_SIZE)+ '_denom'+ str(DENOMINATOR))

@@ -200,6 +200,27 @@ def direct_map(*arrays):
         color = np.reshape(color, (arr.shape[0], arr.shape[1], 3))
         classification_map(color, arr, 300, str(ind) + '.png')
 
+def simple_select(cube: np.ndarray, denominator: int)-> np.ndarray:
+    limit = cube.shape[-1]
+    def recursive_stack(stack, band:int= 1)-> list:
+        '''initial stack should be band 0'''
+        if band == limit:
+            return stack
+        elif band % denominator == 0:
+            stack = np.concatenate((stack, cube[:,:,band]), axis= 2)
+            return recursive_stack(stack, band+1)
+        else:
+            return recursive_stack(stack, band+1)
+
+    # block invalid value
+    if any((not isinstance(denominator, int), denominator< 1, denominator> limit)):
+        raise ValueError
+    elif denominator == 1:
+        return np.array(cube)
+
+    return np.array(recursive_stack(cube[:,:,0], 1))
+
+
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     PATH = r'../data/'
