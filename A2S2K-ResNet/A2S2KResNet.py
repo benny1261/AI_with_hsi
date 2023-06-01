@@ -24,12 +24,12 @@ import Utils
 # Setting Parameters ------------------------------------------------
 VERIFY: bool = False
 PATH = r'../data/'
-# data = [(r'hct8/masks/1018_2_hct8.png', r'hct8/1018_2_processed_fixed', (0,0)),
-#         (r'nih3t3/masks/1018_2_nih3t3.png', r'nih3t3/1018_2_processed_fixed', (0,0))]
-data = (r'/flou/masks/wbc+ht29epcam_0_hsi.png', r'/flou/wbc+ht29epcam_0')
-CUT_SIZE = (400, 400)
+data = [(r'A549\masks\A549_10x_0.png', r'A549\A549_10x_0', (0,0)),
+        (r'flou\masks\ht29epcam_0.png', r'flou\ht29epcam_0', (0,0))]
+# data = (r'/flou/masks/wbc+ht29epcam_0_hsi.png', r'/flou/wbc+ht29epcam_0')
+CUT_SIZE = (1536, 1024)
 REMAIN_BAND: int = 30            # number of channels to keep
-VALIDATION_SPLIT = 0.9
+VALIDATION_SPLIT = 0.1
 ITER: int = 1
 PATCH_LENGTH: int = 3
 KERNEL_SIZE: int = 24
@@ -37,10 +37,10 @@ lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
 EPOCH: int = 30
-DENOMINATOR: int = 5
+DENOMINATOR: int = 1
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
-def load_dataset(data, denom:int= 1): # originally parameters are used for decide which data to load
+def load_dataset(data, denom:int= 1, multi:bool= False): # originally parameters are used for decide which data to load
 
     if VERIFY:
         mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
@@ -49,17 +49,17 @@ def load_dataset(data, denom:int= 1): # originally parameters are used for decid
         gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
     else:
         spectral.settings.envi_support_nonlowercase_params = 'TRUE'
-
-        # for _ in range(len(data)):
-        #     label_path, hsi_path, anchor = data[_]
-        #     labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
-        #     hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
-        #     data[_] = (labeled, hsi, anchor)
-        # gt_hsi, data_hsi = Utils.cut_merge(CUT_SIZE, data)
-
-        gt_hsi = Utils.label_transfer(PATH+data[0])
-        envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
-        data_hsi = envi_hsi.load()
+        if multi:
+            for _ in range(len(data)):
+                label_path, hsi_path, anchor = data[_]
+                labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
+                hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+                data[_] = (labeled, hsi, anchor)
+            gt_hsi, data_hsi = Utils.cut_hstack(CUT_SIZE, data)
+        else:
+            gt_hsi = Utils.label_transfer(PATH+data[0])
+            envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
+            data_hsi = envi_hsi.load()
         print('orig gt shape:',gt_hsi.shape, 'orig hsi shape:', data_hsi.shape)
 
     # shapeorig = data_hsi.shape
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
     os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR)
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, multi= True)
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 

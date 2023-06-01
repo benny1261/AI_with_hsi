@@ -129,7 +129,6 @@ def label_transfer(file_path: str) -> list:
     '''used for transfer premixed colored groundtruth into class label represented in uint8'''
     _ = Image.open(file_path)
     _ = _.convert('RGB')
-    # _.show()
     labeled = []
     arr = np.asarray(_)                                                     # shape = (y,x,3)
     labeled.append(np.all(arr == (255,50,50), axis= -1).astype(np.uint8))   # class 1, shape = (y,x)
@@ -138,19 +137,22 @@ def label_transfer(file_path: str) -> list:
     return np.sum(labeled, axis=0, dtype= np.uint8)
 
 def cut_hstack(size:tuple, data) -> tuple :
-    '''param: data = list of (grayscaleimage, hsi, (anchor_y, anchor_x))
+    '''param:
+    size = (y_len, x_len)\n
+    data = list of (mask, hsi, (anchor_y, anchor_x))
     \n ret: ground truth stack, hsi stack
     '''
     y_len, x_len = size
     labeled = []
     hsis = []
-    for image, hsi, anchor in data:
-        labeled.append(image[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len])
+    for index, (image, hsi, anchor) in enumerate(data):                     # need label transfer
+        temp_label = image[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len]
+        labeled.append(np.all(temp_label != (0,0,0), axis= -1).astype(np.uint8)*(index+1))
         hsis.append(hsi[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len, :])
     
-    lab_stack = np.hstack(labeled)
+    label_stack = np.hstack(labeled)
     hsi_stack = np.hstack(hsis)
-    return lab_stack, hsi_stack
+    return label_stack, hsi_stack
 
 def cut_merge(size:tuple, data) -> tuple :
     '''param: data = list of (grayscaleimage, hsi, (anchor_y, anchor_x))
