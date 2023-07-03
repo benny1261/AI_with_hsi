@@ -24,12 +24,13 @@ import Utils
 # Setting Parameters ------------------------------------------------
 VERIFY: bool = False
 PATH = r'../data/'
-data = [(r'A549\masks\A549_10x_0.png', r'A549\A549_10x_0', (0,0)),
-        (r'flou\masks\ht29epcam_0.png', r'flou\ht29epcam_0', (0,0))]
-# data = (r'/flou/masks/wbc+ht29epcam_0_hsi.png', r'/flou/wbc+ht29epcam_0')
-CUT_SIZE = (1536, 1024)
-REMAIN_BAND: int = 30            # number of channels to keep
-VALIDATION_SPLIT = 0.1
+# data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
+# data = [(r'A549\masks\A549_10x_0.png', r'A549\A549_10x_0', (0,0)),
+#         (r'flou\masks\ht29epcam_0.png', r'flou\ht29epcam_0', (0,0))]
+data = [(r'CTC\masks\20230608_2.png', r'CTC\20230608_2'), (r'CTC\20230608_2', 40), (r'CTC\20230610_1', 40), (r'CTC\20230617_v10-1', 40)]
+CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
+REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
+VALIDATION_SPLIT = 0.6              # occers error when lower than 0.5 (not solved)
 ITER: int = 1
 PATCH_LENGTH: int = 3
 KERNEL_SIZE: int = 24
@@ -40,7 +41,11 @@ EPOCH: int = 30
 DENOMINATOR: int = 1
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
-def load_dataset(data, denom:int= 1, multi:bool= False): # originally parameters are used for decide which data to load
+def load_dataset(data, denom:int= 1, mode:str= 'single'):
+    '''mode:\n
+    \tsingle: (maskpath.png, hsipath)\n
+    \thstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
+    \tweighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...'''
 
     if VERIFY:
         mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
@@ -49,18 +54,67 @@ def load_dataset(data, denom:int= 1, multi:bool= False): # originally parameters
         gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
     else:
         spectral.settings.envi_support_nonlowercase_params = 'TRUE'
-        if multi:
+        if mode == 'hstack':
             for _ in range(len(data)):
                 label_path, hsi_path, anchor = data[_]
                 labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
-                hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
+                hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw").load()
                 data[_] = (labeled, hsi, anchor)
             gt_hsi, data_hsi = Utils.cut_hstack(CUT_SIZE, data)
-        else:
+
+        elif mode == 'weighted':
+            for index, tup in enumerate(data):
+                if index == 0:
+                    gt_hsi = Utils.label_transfer(PATH+tup[0])
+                    envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
+                    data_hsi = envi_hsi.load()
+                elif index == 1:
+                    minor_patch = np.load(PATH+tup[0]+'.npy')
+                    minor_mask = Utils.label_preprocess(PATH+tup[0]+'_mask.png', 1)     # when class 1 is minor class
+                    weight = tup[1]
+                    ROWMAX = math.floor(gt_hsi.shape[0]/minor_mask.shape[0])
+                    col_full = math.floor(weight/ROWMAX)   # zero is acceptable
+                    remainder = weight%ROWMAX
+                    patch_block = np.tile(minor_patch, (ROWMAX, col_full, 1))
+                    mask_block = np.tile(minor_mask, (ROWMAX, col_full))
+                    remain_patch = np.tile(minor_patch, (remainder, 1, 1))
+                    remain_mask = np.tile(minor_mask, (remainder, 1))
+                else:
+                    minor_patch = np.load(PATH+tup[0]+'.npy')
+                    minor_mask = Utils.label_preprocess(PATH+tup[0]+'_mask.png', 1)     # when class 1 is minor class
+                    weight = tup[1]
+                    weight_aftercut = weight-(ROWMAX-remainder)
+                    if weight_aftercut >= 0:    # filled remain array
+                        remain_patch_filled = np.vstack((remain_patch, np.tile(minor_patch, (ROWMAX-remainder, 1, 1))))
+                        remain_mask_filled = np.vstack((remain_mask, np.tile(minor_mask, (ROWMAX-remainder, 1))))
+                        col_full = math.floor(weight_aftercut/ROWMAX)
+                        remainder = weight_aftercut%ROWMAX
+                        patch_block = np.hstack((np.tile(minor_patch, (ROWMAX, col_full, 1)), remain_patch_filled, patch_block))
+                        mask_block = np.hstack((np.tile(minor_mask, (ROWMAX, col_full)), remain_mask_filled, mask_block))
+                        remain_patch = np.tile(minor_patch, (remainder, 1, 1))
+                        remain_mask = np.tile(minor_mask, (remainder, 1))
+                    else:
+                        remainder+= weight
+                        remain_patch = np.vstack((remain_patch, np.tile(weight, 1, 1)))
+                        remain_mask = np.vstack((remain_mask, np.tile(weight, 1)))
+                if index == len(data)-1:    # fill into block
+                    padtile3d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0),(0,0))
+                    padtile2d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0))
+                    remain_patch_filled = np.pad(remain_patch, padtile3d, mode='constant', constant_values= 0)
+                    remain_mask_filled = np.pad(remain_mask, padtile2d, mode='constant', constant_values= 0)
+                    patch_block = np.hstack((remain_patch_filled, patch_block))
+                    mask_block = np.hstack((remain_mask_filled, mask_block))
+            print('mask block shape:', mask_block.shape)
+            patch_to_hsi_height = np.pad(patch_block, ((0,gt_hsi.shape[0]-mask_block.shape[0]),(0,0),(0,0)), 'constant', constant_values= 0)
+            mask_to_hsi_height = np.pad(mask_block, ((0,gt_hsi.shape[0]-mask_block.shape[0]),(0,0)), 'constant', constant_values= 0)
+            gt_hsi = np.hstack((mask_to_hsi_height, gt_hsi))
+            data_hsi = np.hstack((patch_to_hsi_height, data_hsi))
+                    
+        else:   # basic single mode
             gt_hsi = Utils.label_transfer(PATH+data[0])
             envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
             data_hsi = envi_hsi.load()
-        print('orig gt shape:',gt_hsi.shape, 'orig hsi shape:', data_hsi.shape)
+        print('gt shape:', gt_hsi.shape, 'hsi shape:', data_hsi.shape)
 
     # shapeorig = data_hsi.shape
     # data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
@@ -445,7 +499,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
     os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, multi= True)
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'weighted')
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 

@@ -24,7 +24,7 @@ def evaluate_accuracy(data_iter, net, loss, device):
 def aa_and_each_accuracy(confusion_matrix):
     list_diag = np.diag(confusion_matrix)
     list_raw_sum = np.sum(confusion_matrix, axis=1)
-    each_acc = np.nan_to_num(truediv(list_diag, list_raw_sum))
+    each_acc = np.nan_to_num(truediv(list_diag, list_raw_sum))  # zero in list_raw_sum will occur division problem
     average_acc = np.mean(each_acc)
     return each_acc, average_acc
 

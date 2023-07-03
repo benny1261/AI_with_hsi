@@ -31,7 +31,6 @@ def sampling(proportion, ground_truth):
     train_indexes = []
     test_indexes = []
     for i in range(m):
-        # print(len(train[i]), len(test[i]))
         train_indexes += train[i]
         test_indexes += test[i]
     np.random.shuffle(train_indexes)
@@ -122,7 +121,7 @@ def generate_png(all_iter, net, gt_hsi, device, total_indices, path):
 def label_preprocess(file_path: str, label: int) -> list:
     '''image to numpy array with pixel value replaces by intergers representing its class, dtype=uint8
     \n used for non-premixed samples'''
-    _ = np.asarray(Image.open(file_path))   # this will make an 2D array with all nonzeros=1
+    _ = np.where(np.asarray(Image.open(file_path))> 0, 1, 0).astype(np.uint8)   # this will make an 2D array with all positives=1
     return _*label
 
 def label_transfer(file_path: str) -> list:
@@ -137,7 +136,9 @@ def label_transfer(file_path: str) -> list:
     return np.sum(labeled, axis=0, dtype= np.uint8)
 
 def cut_hstack(size:tuple, data) -> tuple :
-    '''param:
+    '''
+    This function is used for stacking multi images with only ONE pure class in each of them\n
+    param:\n
     size = (y_len, x_len)\n
     data = list of (mask, hsi, (anchor_y, anchor_x))
     \n ret: ground truth stack, hsi stack
@@ -145,9 +146,9 @@ def cut_hstack(size:tuple, data) -> tuple :
     y_len, x_len = size
     labeled = []
     hsis = []
-    for index, (image, hsi, anchor) in enumerate(data):                     # need label transfer
+    for index, (image, hsi, anchor) in enumerate(data):
         temp_label = image[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len]
-        labeled.append(np.all(temp_label != (0,0,0), axis= -1).astype(np.uint8)*(index+1))
+        labeled.append(np.all(temp_label != (0,0,0), axis= -1).astype(np.uint8)*(index+1))  # label transfer
         hsis.append(hsi[anchor[0]:anchor[0]+y_len, anchor[1]:anchor[1]+x_len, :])
     
     label_stack = np.hstack(labeled)
@@ -203,6 +204,7 @@ def direct_map(*arrays):
         classification_map(color, arr, 300, str(ind) + '.png')
 
 def simple_select(cube: np.ndarray, denominator: int)-> np.ndarray:
+    '''For decreasing band amounts in hsi'''
     limit = cube.shape[-1]
     def recursive_stack(stack, band:int= 1)-> list:
         '''initial stack should be band 0'''

@@ -30,9 +30,9 @@ def extract_parameters(model_name: str):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    # PATH = r'../data'
-    data = (r'/flou/masks/wbc+ht29epcam_1_hsi.png', r'/flou/wbc+ht29epcam_1')
-    MODEL = "window7_split0.9_lr0.001_adam_kernel24_bands30_classes2_denom5_0.975.pt"
+    data = (r'CTC\masks\20230610_1.png', r'CTC\20230610_1')
+    # data = (r'CTC\masks\20230617_v10-1.png', r'CTC\20230617_v10-1')
+    MODEL = "window7_split0.6_lr0.001_adam_kernel24_bands150_classes2_denom1_1.0.pt"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32
@@ -120,4 +120,4 @@ if __name__ == '__main__':
     record.record_output(
         OA, AA, KAPPA, ELEMENT_ACC, None, TESTING_TIME,
         r'./result/' + MODEL.replace('.pt','.txt'))
-    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/test')
+    Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/' + MODEL.replace('.pt',''))
