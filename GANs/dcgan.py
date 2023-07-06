@@ -1,27 +1,26 @@
-import argparse
 import os
+import glob
 import numpy as np
-import math
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 
 from torch.utils.data import Dataset, DataLoader
-from torch.autograd import Variable
+# from torch.autograd import Variable
 
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
-EPOCH:int = 200
-BATCH_SIZE:int = 8              # orig 64
+EPOCH:int = 2000
+BATCH_SIZE:int = 16             # orig 64
 LR:float = 0.0002
 B1:float = 0.5                  # adam: decay of first order momentum of gradient
 B2:float = 0.999                # adam: decay of first order momentum of gradient
 LATENT_DIM:int = 100
-IMG_SIZE:int = 32               # size of each image dimension
+IMG_SIZE:int = 32               # size of image spatial dimension
 CHANNELS:int = 150              # number of image channels
-SAMPLE_INTERVAL:int = 200       # interval between image sampling
+SAMPLE_INTERVAL:int = 100       # interval between image sampling
 
 def weights_init_normal(m):
     classname = m.__class__.__name__
@@ -63,22 +62,33 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
+        self.kernel_size:int = 3
+        self.stride:int = 2
+        self.padding:int = 1
 
         def discriminator_block(in_filters, out_filters, bn=True):
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, self.kernel_size, self.stride, self.padding),
+                     nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
 
         self.model = nn.Sequential(
-            *discriminator_block(CHANNELS, 16, bn=False),
-            *discriminator_block(16, 32),
-            *discriminator_block(32, 64),
-            *discriminator_block(64, 128),
+            *discriminator_block(CHANNELS, 16, bn=False),   # 8x16x20x20
+            *discriminator_block(16, 32),                   # 8x32x10x10
+            *discriminator_block(32, 64),                   # 8x64x5x5
+            *discriminator_block(64, 128),                  # 8x128x3x3
         )
 
+        def calculate_downsample(input_size:int, kernel= self.kernel_size, stride= self.stride, padding= self.padding, recursive= 1)-> int:
+            if recursive == 1:
+                return (input_size - kernel + 2 * padding) // stride + 1                
+            else:
+                new_size = calculate_downsample(input_size)
+                return calculate_downsample(new_size, kernel= kernel, stride= stride, padding= padding, recursive= recursive-1)
+
         # The height and width of downsampled image
-        ds_size = IMG_SIZE // 2 ** 4
+        ds_size = calculate_downsample(IMG_SIZE, recursive= 4)
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
 
     def forward(self, img):
@@ -90,9 +100,11 @@ class Discriminator(nn.Module):
 
 
 class CustomDataset(Dataset):
-    '''custom dataset to load only data(without labeled data)'''
-    def __init__(self, data):
-        self.data = data
+    '''custom dataset to load only data(without labeled data)\n
+    input format is: N x H x W x C'''
+    def __init__(self, data, transform= None):
+        super().__init__()
+        self.data = np.transpose(np.array(data), (0, 3, 1, 2))  # permute to pytorch default C x H x W format
 
     def __getitem__(self, index):
         x = self.data[index]
@@ -100,6 +112,15 @@ class CustomDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+# input
+PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), r'data/slices')
+os.makedirs(os.path.join(PATH,"gen_img"), exist_ok=True)
+file_paths = glob.glob(os.path.join(PATH, '*.npy'))
+npy_list = []
+for file_path in file_paths:
+    npy_list.append(np.load(file_path))
+print(f'{len(npy_list)} file loaded')
 
 # Loss function
 adversarial_loss = torch.nn.BCELoss()
@@ -121,10 +142,12 @@ generator.apply(weights_init_normal)
 discriminator.apply(weights_init_normal)
 
 # Configure data loader
-rawdataset = CustomDataset(image)
+mydataset = CustomDataset(npy_list,transform= transforms.Compose(
+                        [transforms.ToTensor(),
+                         transforms.Normalize(mean=[0.5]*CHANNELS, std=[0.5]*CHANNELS)]
+                         ))
 dataloader = DataLoader(
-    rawdataset,
-    transform= transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.5]*150, std=[0.5]*150)]),
+    mydataset,
     batch_size= BATCH_SIZE,
     shuffle=True,
 )
@@ -140,7 +163,7 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 # ----------
 
 for epoch in range(EPOCH):
-    for i, imgs in enumerate(dataloader):
+    for i, imgs in enumerate(dataloader):       # I made custom dataloader return only data (without label)
 
         # Adversarial ground truths
         valid = Tensor(imgs.shape[0], 1).fill_(1.0)
@@ -188,4 +211,5 @@ for epoch in range(EPOCH):
 
         batches_done = epoch * len(dataloader) + i
         if batches_done % SAMPLE_INTERVAL == 0:
-            save_image(gen_imgs.data[:25], "images/%d.png" % batches_done, nrow=5, normalize=True)
+            # per_imgs = gen_imgs.permute(0, 2, 3, 1)
+            save_image(gen_imgs.data[:,49:50,:,:], os.path.join(PATH,"gen_img","%d.png") % batches_done, nrow=4, normalize=True)
