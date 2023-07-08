@@ -27,7 +27,8 @@ PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
 # data = [(r'A549\masks\A549_10x_0.png', r'A549\A549_10x_0', (0,0)),
 #         (r'flou\masks\ht29epcam_0.png', r'flou\ht29epcam_0', (0,0))]
-data = [(r'CTC\masks\20230608_2.png', r'CTC\20230608_2'), (r'CTC\20230608_2', 40), (r'CTC\20230610_1', 40), (r'CTC\20230617_v10-1', 40)]
+data = [(r'CTC\masks\20230608_2.png', r'CTC\20230608_2'),
+        (r'CTC\20230608_2', 80), (r'CTC\20230610_1', 80), (r'CTC\20230617_v10-1', 80), (r'CTC\20230617_v10-2', 80)]
 CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
 REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
 VALIDATION_SPLIT = 0.6              # occers error when lower than 0.5 (not solved)
