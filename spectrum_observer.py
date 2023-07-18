@@ -1,19 +1,23 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser
+from tkinter import filedialog, messagebox, colorchooser, ttk
 from spectral.io import envi
 import spectral
 from PIL import ImageTk, Image, ImageDraw
 import numpy as np
 import os
 from scipy.spatial import ConvexHull
+from threading import Thread
+import time
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
-os.chdir(r'D:\code\AI_with_hsi\data')
+# os.chdir(r'D:\code\AI_with_hsi\data')
 
 # Create the main Tkinter window
 root = tk.Tk()
 root.title("Image Selection and Pixel Extraction")
 root.resizable(0,0)
+s = ttk.Style()
+s.theme_use('clam')
 
 def choose_cwd():
     '''Let user select directory where they import data'''
@@ -23,15 +27,30 @@ def choose_cwd():
         os.chdir(_)
 
 def open_hsi():
-    global image_path, hsi
-    image_path = filedialog.askopenfilename(filetypes=[("Array",'*.npy;*.hdr')],initialdir= os.getcwd())
+    global image_path, tic
+    image_path = filedialog.askopenfilename(filetypes=[("Array",'*.npy;*.hdr')],initialdir= os.getcwd())   
+
     if image_path:
-        extention_type = os.path.splitext(image_path)[1]
-        if extention_type == '.npy':
-            hsi = np.load(image_path)
-        else:
-            arr = envi.open(image_path , image_path.replace('.hdr','.raw')).load()
-            hsi = arr.copy()
+        import_td = Import_thread()
+        progwin = TLProgressBar(root)
+        progwin.title('Importing')
+
+        tic = time.time()
+        import_td.start()           # start the run() method in Import_thread
+        thread_monitor(progwin, import_td)
+
+def thread_monitor(window, thread):
+    '''check whether the thread in window is alive, if not, run command'''
+    global hsi
+
+    if thread.is_alive():
+        window.after(100, lambda: thread_monitor(window, thread))
+    else:
+        # pass data after thread closed
+        window.destroy()
+        hsi = thread.hsi_cache
+        toc = time.time()
+        print('loading time:', toc-tic, 'seconds')
         canvas.load_array(hsi)
 
 def longest_slice_between_duplicate_elements(lst):
@@ -48,8 +67,11 @@ def longest_slice_between_duplicate_elements(lst):
     return longest_slice        # return empty array if no same element found
 
 def save_image():
-
-    name = os.path.basename(image_path).split('.')[0]
+    '''saves the current image in canvas window'''
+    try:
+        name = os.path.basename(image_path).split('.')[0]
+    except:
+        return
 
     if os.path.exists(name+".png"):
         response = messagebox.askquestion("File Exists", "A file with the same name already exists. Do you want to overwrite?")
@@ -73,6 +95,38 @@ def save_image():
     image.save(name+".png")
     print("Image saved successfully.")
 
+
+class TLProgressBar(tk.Toplevel):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+
+        self.master = master
+        self.resizable(0,0)
+        self.attributes('-topmost', 'true')
+
+        # progress bar widget
+        progbar = ttk.Progressbar(self, mode= "indeterminate", length= 500)
+        progbar.start()
+        progbar.pack(padx= 20, pady= 10)
+
+        # initializing bar position
+        self.update_idletasks()
+        cord_x = self.master.winfo_x()+(self.master.winfo_width()-self.winfo_width())/2
+        cord_y = self.master.winfo_y()+(self.master.winfo_height()-self.winfo_height())/2
+        self.geometry(f'+{int(cord_x)}+{int(cord_y)}')
+
+class Import_thread(Thread):                                                        # define a class that inherits from 'Thread' class
+    def __init__(self):
+        super().__init__()                                                          # run __init__ of parent class
+        self.hsi_cache= None
+
+    def run(self):                                                                  # overwrites run() method from parent class
+        extention_type = os.path.splitext(image_path)[1]
+        if extention_type == '.npy':
+            self.hsi_cache = np.load(image_path)
+        else:
+            arr = envi.open(image_path , image_path.replace('.hdr','.raw')).load()
+            self.hsi_cache = arr.copy()
 
 class ZoomDrag(tk.Canvas):
     def __init__(self, master: any, width:int= 1000, height:int= 750, bg = 'black', **kwargs):
@@ -256,21 +310,20 @@ class ZoomDrag(tk.Canvas):
             self.tkmask = ImageTk.PhotoImage(self.resized_mask)
         self.mask_id = self.create_image(bbox[0], bbox[1], image=self.tkmask, anchor=tk.NW, tags= ('image'))
 
-    def pick_color(self, event)->str:
+    def pick_color(self, event):
         color = colorchooser.askcolor(title="Pick a Color", parent= root)
         if color:
             current_color.configure(bg= color[1])
-            self.graph_color = color[1]
-        return color[1]             # HEX color code
+            self.graph_color = color[1]     # HEX color code
 
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
-scale_label = tk.Label(scale_monitor, textvariable= canvas.scale_factor, bg= 'gray80')
+scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80')
 color_monitor = tk.Frame(root)
-color_button = tk.Button(color_monitor, text= 'change\n(middle mouse)', command= lambda: canvas.pick_color(None))
-current_color = tk.Label(color_monitor, width= 1, height= 1, bg= canvas.graph_color)
+color_button = ttk.Button(color_monitor, text= '      change\n(middle mouse)', command= lambda: canvas.pick_color(None))
+current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
