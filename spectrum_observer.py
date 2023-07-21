@@ -5,12 +5,15 @@ import spectral
 from PIL import ImageTk, Image, ImageDraw
 import numpy as np
 import os
+import re
 from scipy.spatial import ConvexHull
 from threading import Thread
 import time
+import matplotlib.pyplot as plt
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
-# os.chdir(r'D:\code\AI_with_hsi\data')
+# global variables
+hsi: np.ndarray = None
 
 # Create the main Tkinter window
 root = tk.Tk()
@@ -95,6 +98,75 @@ def save_image():
     image.save(name+".png")
     print("Image saved successfully.")
 
+def update_legend():
+    leg = ax.legend(fancybox=True, shadow=True)
+    origlines = [value for value in plt_lines.values()]     # make a list of value in dict while preserving order (>Python3.7)
+    for legline, origline in zip(leg.get_lines(), origlines):
+        if legline not in [x for x in plt_lined.keys()]:    # avoid apply modifications to old Line2D objects more than one time
+            legline.set_picker(True)  # Enable picking on the legend line.
+            plt_lined[legline] = origline
+            legline.set_linewidth(3)
+
+def on_pick(event):
+    legline = event.artist
+    origline = plt_lined[legline]
+    if event.mouseevent.button == 1:        # left mouse click
+        # find the original line corresponding to the legend proxy line, and toggle its visibility.
+        visible = not origline.get_visible()
+        origline.set_visible(visible)
+        # Change the alpha on the line in the legend, so we can see what lines have been toggled.
+        legline.set_alpha(1.0 if visible else 0.2)
+        fig.canvas.draw()
+
+    if event.mouseevent.button == 3:        # right mouse click
+        origline.remove()       # remove the line from figure
+        del plt_lines[origline.get_label()]
+        update_legend()
+        fig.canvas.draw()
+
+def show_graph():
+
+    def naming(substr:str, list_to_search:list[str])->str:
+        '''avoid identical names'''
+
+        matching_names = [n for n in list_to_search if n.startswith(substr)]
+        pattern = r'.*\((\d+)\)$'
+        index_cache = []
+
+        if matching_names:
+            for matching_name in matching_names:
+                match = re.search(pattern, matching_name)
+                if match:       # indexed name exists
+                    index_cache.append(int(match.group(1)))
+
+            if not index_cache: return substr+'(1)'
+            else:
+                return substr+f'({max(index_cache)+1})'
+
+        return substr
+
+    try:
+        name = os.path.basename(image_path).split('.')[0]
+        indname = naming(name, [x for x in plt_lines.keys()])
+
+    except:
+        print('No existing file, please load file')
+        return
+    position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
+    wavelengths = np.linspace(470, 900, num= hsi.shape[2])
+    spectrum = []
+
+    for _ in range(hsi.shape[2]):                                       # iterate over all bands of hsi
+        masked_data = np.ma.array(hsi[:,:,_], mask= ~position)          # invert the mask since False means valid element in np.ma
+        masked_mean = np.ma.mean(masked_data)
+        spectrum.append(masked_mean)
+
+    # create plot
+    plt_lines[indname], = ax.plot(wavelengths, spectrum, color= canvas.graph_color, label= indname)
+
+    update_legend()
+    # Show the plot
+    plt.show()
 
 class TLProgressBar(tk.Toplevel):
     def __init__(self, master, **kwargs):
@@ -110,7 +182,7 @@ class TLProgressBar(tk.Toplevel):
         progbar.pack(padx= 20, pady= 10)
 
         # initializing bar position
-        self.update_idletasks()
+        self.update_idletasks()             # update information of toplevel size after placing widget
         cord_x = self.master.winfo_x()+(self.master.winfo_width()-self.winfo_width())/2
         cord_y = self.master.winfo_y()+(self.master.winfo_height()-self.winfo_height())/2
         self.geometry(f'+{int(cord_x)}+{int(cord_y)}')
@@ -126,7 +198,7 @@ class Import_thread(Thread):                                                    
             self.hsi_cache = np.load(image_path)
         else:
             arr = envi.open(image_path , image_path.replace('.hdr','.raw')).load()
-            self.hsi_cache = arr.copy()
+            self.hsi_cache = np.asarray(arr)
 
 class ZoomDrag(tk.Canvas):
     def __init__(self, master: any, width:int= 1000, height:int= 750, bg = 'black', **kwargs):
@@ -301,7 +373,7 @@ class ZoomDrag(tk.Canvas):
         draw.polygon(item_coords, fill= self.mask_color)
 
         if self.scale_factor.get() != 1:
-            self.mask = self.mask.resize((self.pil_image.width, self.pil_image.height), Image.Resampling.NEAREST)
+            self.mask = self.mask.resize((self.pil_image.width, self.pil_image.height), Image.Resampling.NEAREST)       # 1xsize
             self.resized_mask = self.mask.resize((self.mask.width*self.scale_factor.get(),self.mask.height*self.scale_factor.get()),
                                                 Image.Resampling.NEAREST)
             self.tkmask = ImageTk.PhotoImage(self.resized_mask)
@@ -322,8 +394,9 @@ menu_bar = tk.Menu(root)
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
 scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80')
 color_monitor = tk.Frame(root)
-color_button = ttk.Button(color_monitor, text= '      change\n(middle mouse)', command= lambda: canvas.pick_color(None))
+color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
+graph_button = ttk.Button(root, text= 'apply graph', command= show_graph)
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
@@ -346,8 +419,22 @@ tk.Label(color_monitor, text= 'graph color').grid(row= 0, column= 0, sticky= 'S'
 color_button.grid(row= 1, column= 0, columnspan= 2)
 tk.Label(color_monitor, text= 'current:').grid(row= 2, column= 0, pady= 10)
 current_color.grid(row= 2, column= 1, sticky= 'we')
+graph_button.grid(row= 2, column= 0)
 
-canvas.grid(row= 0, column= 1, rowspan= 2, padx= 5, pady= 5)
+canvas.grid(row= 0, column= 1, rowspan= 3, padx= 5, pady= 5)
+
+# Initialize plots globally
+fig, ax = plt.subplots()
+fig.canvas.mpl_connect('pick_event', on_pick)
+# starting from Python 3.7, the built-in dict class also preserves the insertion order of elements
+plt_lines = {}                  # key= label, value = original line
+plt_lined = {}                  # Will map legend lines to original lines
+
+# Customize the plot
+ax.set_title('Spectrum Graph')
+plt.xlabel('wavelength')
+plt.ylabel('relative intensity')
+plt.grid(True)
 
 # Start the Tkinter event loop
 root.mainloop()
