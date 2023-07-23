@@ -10,6 +10,8 @@ from scipy.spatial import ConvexHull
 from threading import Thread
 import time
 import matplotlib.pyplot as plt
+from matplotlib.ticker import LinearLocator
+from matplotlib import cm
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 # global variables
@@ -125,6 +127,7 @@ def on_pick(event):
         fig.canvas.draw()
 
 def show_graph():
+    '''show 2d line graph of the area(mean) across spectral dimension'''
 
     def naming(substr:str, list_to_search:list[str])->str:
         '''avoid identical names'''
@@ -148,9 +151,12 @@ def show_graph():
     try:
         name = os.path.basename(image_path).split('.')[0]
         indname = naming(name, [x for x in plt_lines.keys()])
-
     except:
         print('No existing file, please load file')
+        return
+    
+    if not hasattr(canvas, 'mask'):
+        print('No selected area')
         return
     position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
     wavelengths = np.linspace(470, 900, num= hsi.shape[2])
@@ -166,7 +172,63 @@ def show_graph():
 
     update_legend()
     # Show the plot
-    plt.show()
+    fig.show()
+
+def show_3d():
+    '''show 3d plot on one layer across spatial dimension'''
+    def mask_bbox(boolmask:np.ndarray)->tuple:
+        rows = np.any(boolmask, axis= 1)
+        cols = np.any(boolmask, axis= 0)
+        rmin, rmax = np.where(rows)[0][[0, -1]]     # np.where returns: (array of index which is True, dtype=int64)
+        cmin, cmax = np.where(cols)[0][[0, -1]]     # advanced indexing [[0,-1]] to extract first and last element in 1D array
+        return rmin, rmax+1, cmin, cmax+1           # +1 is for index(exclude in end of slicing)
+
+    # block errors
+    try:
+        image_path
+    except:
+        print('No existing file, please load file')
+        return
+    if not hasattr(canvas, 'mask'):
+        print('No selected area')
+        return
+
+    position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
+    BAND:int = 49       # 50th band, index 49
+    bbox = mask_bbox(position)
+
+    bboxed_data = hsi[bbox[0]:bbox[1],bbox[2]:bbox[3],BAND]
+    bboxed_mask = position[bbox[0]:bbox[1],bbox[2]:bbox[3]]
+    bboxed_data_masked = np.where(bboxed_mask == True, bboxed_data, np.nan)
+
+    # Create a grid for X and Y coordinates
+    X = np.arange(0, bboxed_data.shape[1], 1)
+    Y = np.arange(0, bboxed_data.shape[0], 1)
+    X, Y = np.meshgrid(X, Y)
+
+    # first axis in fig3d is ax3d, second (if exist) is colorbar
+    first_time:bool = len(fig3d.axes) == 1
+    if not first_time:
+        # Clear existing plots in ax3d from previous calls
+        ax3d.cla()
+
+    # Plot the surface.
+    ax3d.plot_surface(X, Y, bboxed_data_masked, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+    # Customize the z axis.
+    ax3d.set_zlim(np.nanmin(bboxed_data_masked), np.nanmax(bboxed_data_masked))     # uses nanmin/nanmax to ignore np.nan values
+    ax3d.zaxis.set_major_locator(LinearLocator(10))
+    ax3d.zaxis.set_major_formatter('{x:.02f}')
+
+    # update color bar limits
+    cbar.mappable.set_clim(vmin = np.nanmin(bboxed_data_masked), vmax = np.nanmax(bboxed_data_masked))
+
+    fig3d.show()
+
+def on_closing():
+    plt.close('all')
+    root.destroy()
+
 
 class TLProgressBar(tk.Toplevel):
     def __init__(self, master, **kwargs):
@@ -237,8 +299,10 @@ class ZoomDrag(tk.Canvas):
             normed_gray = Image.fromarray(normed_gray, mode= 'L')
             self.pil_image = normed_gray
             self.update_image()
-
             self.addtag("image", 'withtag', self.image_id)
+
+        if hasattr(self, 'mask'):
+            del self.mask
 
     def start_drag(self, event):
         self.start_x, self.start_y = event.x, event.y
@@ -388,6 +452,9 @@ class ZoomDrag(tk.Canvas):
             current_color.configure(bg= color[1])
             self.graph_color = color[1]     # HEX color code
 
+# Closing protocal
+root.protocol('WM_DELETE_WINDOW', on_closing)
+
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
@@ -397,6 +464,7 @@ color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
 graph_button = ttk.Button(root, text= 'apply graph', command= show_graph)
+plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d)
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
@@ -420,21 +488,27 @@ color_button.grid(row= 1, column= 0, columnspan= 2)
 tk.Label(color_monitor, text= 'current:').grid(row= 2, column= 0, pady= 10)
 current_color.grid(row= 2, column= 1, sticky= 'we')
 graph_button.grid(row= 2, column= 0)
+plot3d_button.grid(row= 3, column= 0)
 
-canvas.grid(row= 0, column= 1, rowspan= 3, padx= 5, pady= 5)
+canvas.grid(row= 0, column= 1, rowspan= 4, padx= 5, pady= 5)
 
-# Initialize plots globally
-fig, ax = plt.subplots()
+# Initialize 2Dplots globally
+fig = plt.figure('spectral')
+ax = fig.add_subplot(111)
 fig.canvas.mpl_connect('pick_event', on_pick)
 # starting from Python 3.7, the built-in dict class also preserves the insertion order of elements
 plt_lines = {}                  # key= label, value = original line
 plt_lined = {}                  # Will map legend lines to original lines
-
 # Customize the plot
 ax.set_title('Spectrum Graph')
 plt.xlabel('wavelength')
 plt.ylabel('relative intensity')
 plt.grid(True)
+
+# Initialize a 3D subplot
+fig3d = plt.figure('spatial')
+ax3d = fig3d.add_subplot(111, projection= '3d')
+cbar = fig3d.colorbar(cm.ScalarMappable(norm= None, cmap= cm.coolwarm), ax= ax3d)
 
 # Start the Tkinter event loop
 root.mainloop()
