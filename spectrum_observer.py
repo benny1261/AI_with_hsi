@@ -109,7 +109,7 @@ def update_legend():
             plt_lined[legline] = origline
             legline.set_linewidth(3)
 
-def on_pick(event):
+def on_pick_legend(event):
     legline = event.artist
     origline = plt_lined[legline]
     if event.mouseevent.button == 1:        # left mouse click
@@ -174,61 +174,88 @@ def show_graph():
     # Show the plot
     fig.show()
 
-def show_3d():
-    '''show 3d plot on one layer across spatial dimension'''
-    def mask_bbox(boolmask:np.ndarray)->tuple:
-        rows = np.any(boolmask, axis= 1)
-        cols = np.any(boolmask, axis= 0)
-        rmin, rmax = np.where(rows)[0][[0, -1]]     # np.where returns: (array of index which is True, dtype=int64)
-        cmin, cmax = np.where(cols)[0][[0, -1]]     # advanced indexing [[0,-1]] to extract first and last element in 1D array
-        return rmin, rmax+1, cmin, cmax+1           # +1 is for index(exclude in end of slicing)
-
-    # block errors
-    try:
-        image_path
-    except:
-        print('No existing file, please load file')
-        return
-    if not hasattr(canvas, 'mask'):
-        print('No selected area')
-        return
-
-    position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
-    BAND:int = 49       # 50th band, index 49
-    bbox = mask_bbox(position)
-
-    bboxed_data = hsi[bbox[0]:bbox[1],bbox[2]:bbox[3],BAND]
-    bboxed_mask = position[bbox[0]:bbox[1],bbox[2]:bbox[3]]
-    bboxed_data_masked = np.where(bboxed_mask == True, bboxed_data, np.nan)
-
-    # Create a grid for X and Y coordinates
-    X = np.arange(0, bboxed_data.shape[1], 1)
-    Y = np.arange(0, bboxed_data.shape[0], 1)
-    X, Y = np.meshgrid(X, Y)
-
-    # first axis in fig3d is ax3d, second (if exist) is colorbar
-    first_time:bool = len(fig3d.axes) == 1
-    if not first_time:
-        # Clear existing plots in ax3d from previous calls
-        ax3d.cla()
-
-    # Plot the surface.
-    ax3d.plot_surface(X, Y, bboxed_data_masked, cmap=cm.coolwarm, linewidth=0, antialiased=False)
-
-    # Customize the z axis.
-    ax3d.set_zlim(np.nanmin(bboxed_data_masked), np.nanmax(bboxed_data_masked))     # uses nanmin/nanmax to ignore np.nan values
-    ax3d.zaxis.set_major_locator(LinearLocator(10))
-    ax3d.zaxis.set_major_formatter('{x:.02f}')
-
-    # update color bar limits
-    cbar.mappable.set_clim(vmin = np.nanmin(bboxed_data_masked), vmax = np.nanmax(bboxed_data_masked))
-
-    fig3d.show()
-
 def on_closing():
     plt.close('all')
     root.destroy()
 
+class PlotSlice:
+    def __init__(self) -> None:
+        self.index:int = 49
+        self.bbox_hsi:np.ndarray = None
+        self.bbox_mask:np.ndarray = None
+
+        # Initialize a 3D subplot
+        self.fig3d = plt.figure('spatial plot')
+        self.fig3d.canvas.mpl_connect('key_press_event', self.update_band)
+        self.ax3d = self.fig3d.add_subplot(111, projection= '3d')
+        self.cbar = self.fig3d.colorbar(cm.ScalarMappable(norm= None, cmap= cm.coolwarm), ax= self.ax3d)
+
+    def update_data(self):
+        def mask_bbox(boolmask:np.ndarray)->tuple:
+            rows = np.any(boolmask, axis= 1)
+            cols = np.any(boolmask, axis= 0)
+            rmin, rmax = np.where(rows)[0][[0, -1]]     # np.where returns: (array of index which is True, dtype=int64)
+            cmin, cmax = np.where(cols)[0][[0, -1]]     # advanced indexing [[0,-1]] to extract first and last element in 1D array
+            return rmin, rmax+1, cmin, cmax+1           # +1 is for index(exclude in end of slicing)
+
+        position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
+        bbox = mask_bbox(position)
+
+        self.bbox_hsi = hsi[bbox[0]:bbox[1],bbox[2]:bbox[3]]
+        self.bbox_mask = position[bbox[0]:bbox[1],bbox[2]:bbox[3]]
+
+        # Create a grid for X and Y coordinates
+        X = np.arange(0, self.bbox_mask.shape[1], 1)
+        Y = np.arange(0, self.bbox_mask.shape[0], 1)
+        self.X, self.Y = np.meshgrid(X, Y)
+
+    def update_band(self, event= None):
+        '''update band and make plot on axis[0] in figure'''
+
+        if event is not None:
+            if event.key == 'z':                # must be aware it can only read english keys
+                self.index = max(0, self.index-1)
+            elif event.key == 'c':
+                self.index = min(self.bbox_hsi.shape[2]-1, self.index+1)
+
+        # Clear existing plots in ax3d from previous calls
+        self.ax3d.cla()
+
+        bbox_slice = self.bbox_hsi[:,:,self.index]
+        bbox_slice_masked = np.where(self.bbox_mask == True, bbox_slice, np.nan)
+
+        # Customize the z axis.
+        self.ax3d.set_zlim(np.nanmin(bbox_slice_masked), np.nanmax(bbox_slice_masked))     # uses nanmin/nanmax to ignore np.nan values
+        self.ax3d.zaxis.set_major_locator(LinearLocator(10))
+        self.ax3d.zaxis.set_major_formatter('{x:.02f}')
+
+        # update color bar limits
+        self.cbar.mappable.set_clim(vmin = np.nanmin(bbox_slice_masked), vmax = np.nanmax(bbox_slice_masked))
+
+        # Plot the surface.
+        self.ax3d.plot_surface(self.X, self.Y, bbox_slice_masked, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+
+        # update show index
+        self.ax3d.set_title(f'\nband {self.index+1}')
+
+        self.fig3d.canvas.draw()
+
+    def show_3d(self):
+        '''show 3d plot on one layer across spatial dimension'''
+
+        # block errors
+        try:
+            image_path
+        except:
+            print('No existing file, please load file')
+            return
+        if not hasattr(canvas, 'mask'):
+            print('No selected area')
+            return
+
+        self.update_data()
+        self.update_band()
+        self.fig3d.show()
 
 class TLProgressBar(tk.Toplevel):
     def __init__(self, master, **kwargs):
@@ -458,13 +485,14 @@ root.protocol('WM_DELETE_WINDOW', on_closing)
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
+plot3d = PlotSlice()
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
 scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80')
 color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
 graph_button = ttk.Button(root, text= 'apply graph', command= show_graph)
-plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d)
+plot3d_button = ttk.Button(root, text= '3D graph', command= plot3d.show_3d)
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
@@ -493,9 +521,9 @@ plot3d_button.grid(row= 3, column= 0)
 canvas.grid(row= 0, column= 1, rowspan= 4, padx= 5, pady= 5)
 
 # Initialize 2Dplots globally
-fig = plt.figure('spectral')
+fig = plt.figure('spectral plot')
 ax = fig.add_subplot(111)
-fig.canvas.mpl_connect('pick_event', on_pick)
+fig.canvas.mpl_connect('pick_event', on_pick_legend)
 # starting from Python 3.7, the built-in dict class also preserves the insertion order of elements
 plt_lines = {}                  # key= label, value = original line
 plt_lined = {}                  # Will map legend lines to original lines
@@ -504,11 +532,6 @@ ax.set_title('Spectrum Graph')
 plt.xlabel('wavelength')
 plt.ylabel('relative intensity')
 plt.grid(True)
-
-# Initialize a 3D subplot
-fig3d = plt.figure('spatial')
-ax3d = fig3d.add_subplot(111, projection= '3d')
-cbar = fig3d.colorbar(cm.ScalarMappable(norm= None, cmap= cm.coolwarm), ax= ax3d)
 
 # Start the Tkinter event loop
 root.mainloop()
