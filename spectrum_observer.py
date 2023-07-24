@@ -56,6 +56,7 @@ def thread_monitor(window, thread):
         hsi = thread.hsi_cache
         toc = time.time()
         print('loading time:', toc-tic, 'seconds')
+        statusbar.configure(text= f'{os.path.basename(image_path)} (h:{hsi.shape[0]},w:{hsi.shape[1]},c:{hsi.shape[2]})')
         canvas.load_array(hsi)
 
 def longest_slice_between_duplicate_elements(lst):
@@ -486,8 +487,10 @@ root.protocol('WM_DELETE_WINDOW', on_closing)
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
 plot3d = PlotSlice()
+statusbar = ttk.Label(root, text= '', border= 1, relief= 'sunken', anchor= 'e')
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
-scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80')
+scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
+                        font=('Times New Roman', 16))
 color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
@@ -507,18 +510,20 @@ menu_bar.add_cascade(label="File", menu=file_menu)
 root.config(menu=menu_bar)
 
 # place wigets
-scale_monitor.grid(row= 0, column= 0, padx= (5, 0))
-tk.Label(scale_monitor, text= 'scale: ', bg= 'gray80').grid(row= 0, column= 0, sticky= 'E')
+PADX = 10
+scale_monitor.grid(row= 0, column= 0, padx= (PADX, 0))
+tk.Label(scale_monitor, text= 'scale: ', bg= 'gray80', fg= 'blue', font= ('Times New Roman', 16)).grid(row= 0, column= 0, sticky= 'E')
 scale_label.grid(row= 0, column= 1, sticky= 'W')
-color_monitor.grid(row= 1, column= 0, padx= (5, 0))
+color_monitor.grid(row= 1, column= 0, padx= (PADX, 0))
 tk.Label(color_monitor, text= 'graph color').grid(row= 0, column= 0, sticky= 'S', columnspan= 2)
 color_button.grid(row= 1, column= 0, columnspan= 2)
 tk.Label(color_monitor, text= 'current:').grid(row= 2, column= 0, pady= 10)
 current_color.grid(row= 2, column= 1, sticky= 'we')
-graph_button.grid(row= 2, column= 0)
-plot3d_button.grid(row= 3, column= 0)
+graph_button.grid(row= 2, column= 0, padx=(PADX, 0))
+plot3d_button.grid(row= 3, column= 0, padx=(PADX, 0))
 
-canvas.grid(row= 0, column= 1, rowspan= 4, padx= 5, pady= 5)
+statusbar.grid(row= 4, column=0, columnspan= 2, sticky= 'WE')
+canvas.grid(row= 0, column= 1, rowspan= 4, padx= PADX, pady= 5)
 
 # Initialize 2Dplots globally
 fig = plt.figure('spectral plot')
