@@ -16,6 +16,9 @@ from matplotlib import cm
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 # global variables
 hsi: np.ndarray = None
+destination:str = os.getcwd()
+fig3d_flag:bool = False
+fig_flag:bool = False
 
 # Create the main Tkinter window
 root = tk.Tk()
@@ -30,6 +33,14 @@ def choose_cwd():
     _ = filedialog.askdirectory(initialdir= os.getcwd())
     if _:
         os.chdir(_)
+
+def change_des():
+    '''Let user select directory where they export data'''
+    global destination
+
+    _ = filedialog.askdirectory(initialdir= destination)
+    if _:
+        destination = _
 
 def open_hsi():
     global image_path, tic
@@ -79,7 +90,7 @@ def save_image():
     except:
         return
 
-    if os.path.exists(name+".png"):
+    if os.path.exists(os.path.join(destination, name) + ".png"):
         response = messagebox.askquestion("File Exists", "A file with the same name already exists. Do you want to overwrite?")
         if response == 'no':
             return
@@ -98,60 +109,14 @@ def save_image():
         image = image.convert('RGBA')
         image = Image.alpha_composite(image, mask)
 
-    image.save(name+".png")
-    print("Image saved successfully.")
-
-def update_legend():
-    leg = ax.legend(fancybox=True, shadow=True)
-    origlines = [value for value in plt_lines.values()]     # make a list of value in dict while preserving order (>Python3.7)
-    for legline, origline in zip(leg.get_lines(), origlines):
-        if legline not in [x for x in plt_lined.keys()]:    # avoid apply modifications to old Line2D objects more than one time
-            legline.set_picker(True)  # Enable picking on the legend line.
-            plt_lined[legline] = origline
-            legline.set_linewidth(3)
-
-def on_pick_legend(event):
-    legline = event.artist
-    origline = plt_lined[legline]
-    if event.mouseevent.button == 1:        # left mouse click
-        # find the original line corresponding to the legend proxy line, and toggle its visibility.
-        visible = not origline.get_visible()
-        origline.set_visible(visible)
-        # Change the alpha on the line in the legend, so we can see what lines have been toggled.
-        legline.set_alpha(1.0 if visible else 0.2)
-        fig.canvas.draw()
-
-    if event.mouseevent.button == 3:        # right mouse click
-        origline.remove()       # remove the line from figure
-        del plt_lines[origline.get_label()]
-        update_legend()
-        fig.canvas.draw()
+    image.save(os.path.join(destination, name) + ".png")
+    print("Image saved successfully to", destination)
 
 def show_graph():
     '''show 2d line graph of the area(mean) across spectral dimension'''
-
-    def naming(substr:str, list_to_search:list[str])->str:
-        '''avoid identical names'''
-
-        matching_names = [n for n in list_to_search if n.startswith(substr)]
-        pattern = r'.*\((\d+)\)$'
-        index_cache = []
-
-        if matching_names:
-            for matching_name in matching_names:
-                match = re.search(pattern, matching_name)
-                if match:       # indexed name exists
-                    index_cache.append(int(match.group(1)))
-
-            if not index_cache: return substr+'(1)'
-            else:
-                return substr+f'({max(index_cache)+1})'
-
-        return substr
-
+    global plot2d
     try:
         name = os.path.basename(image_path).split('.')[0]
-        indname = naming(name, [x for x in plt_lines.keys()])
     except:
         print('No existing file, please load file')
         return
@@ -159,28 +124,124 @@ def show_graph():
     if not hasattr(canvas, 'mask'):
         print('No selected area')
         return
-    position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
-    wavelengths = np.linspace(470, 900, num= hsi.shape[2])
-    spectrum = []
 
-    for _ in range(hsi.shape[2]):                                       # iterate over all bands of hsi
-        masked_data = np.ma.array(hsi[:,:,_], mask= ~position)          # invert the mask since False means valid element in np.ma
-        masked_mean = np.ma.mean(masked_data)
-        spectrum.append(masked_mean)
-
-    # create plot
-    plt_lines[indname], = ax.plot(wavelengths, spectrum, color= canvas.graph_color, label= indname)
-
-    update_legend()
+    if not fig_flag:
+        plot2d = PlotSpectrum()
+    plot2d.add_data(name)
+    plot2d.update_legend()
     # Show the plot
-    fig.show()
+    plot2d.fig.show()
 
 def on_closing():
     plt.close('all')
     root.destroy()
 
+def show_3d():
+    '''show 3d plot on one layer across spatial dimension'''
+    global plot3d
+    # block errors
+    try:
+        image_path
+    except:
+        print('No existing file, please load file')
+        return
+    if not hasattr(canvas, 'mask'):
+        print('No selected area')
+        return
+
+    if not fig3d_flag:
+        plot3d = PlotSlice()
+
+    plot3d.update_data()
+    plot3d.update_band()
+    plot3d.fig3d.show()
+
+class PlotSpectrum:
+    def __init__(self) -> None:
+        global fig_flag
+        # Initialize 2Dplots
+        self.fig = plt.figure('spectral plot')
+        self.ax = self.fig.add_subplot(111)
+        self.fig.canvas.mpl_connect('pick_event', self.on_pick_legend)
+        self.fig.canvas.mpl_connect('close_event', self.on_close)
+        # starting from Python 3.7, the built-in dict class also preserves the insertion order of elements
+        self.plt_lines = {}                 # key= label, value = original line
+        self.plt_lined = {}                 # Will map legend lines to original lines
+        # Customize the plot
+        self.ax.set_title('Spectrum Graph')
+        self.ax.set_xlabel('wavelength')
+        self.ax.set_ylabel('relative intensity')
+        self.ax.grid(True)
+
+        fig_flag = True
+
+    def update_legend(self):
+        leg = self.ax.legend(fancybox=True, shadow=True)
+        origlines = [value for value in self.plt_lines.values()]    # make a list of value in dict while preserving order (>Python3.7)
+        for legline, origline in zip(leg.get_lines(), origlines):
+            if legline not in [x for x in self.plt_lined.keys()]:   # avoid apply modifications to old Line2D objects more than one time
+                legline.set_picker(True)    # Enable picking on the legend line.
+                self.plt_lined[legline] = origline
+                legline.set_linewidth(3)
+
+    def on_pick_legend(self, event):
+        legline = event.artist
+        origline = self.plt_lined[legline]
+        if event.mouseevent.button == 1:        # left mouse click
+            # find the original line corresponding to the legend proxy line, and toggle its visibility.
+            visible = not origline.get_visible()
+            origline.set_visible(visible)
+            # Change the alpha on the line in the legend, so we can see what lines have been toggled.
+            legline.set_alpha(1.0 if visible else 0.2)
+            self.fig.canvas.draw()
+
+        if event.mouseevent.button == 3:        # right mouse click
+            origline.remove()       # remove the line from figure
+            del self.plt_lines[origline.get_label()]
+            self.update_legend()
+            self.fig.canvas.draw()
+
+    def add_data(self, name):
+
+        def naming(substr:str, list_to_search:list[str])->str:
+            '''avoid identical names'''
+
+            matching_names = [n for n in list_to_search if n.startswith(substr)]
+            pattern = r'.*\((\d+)\)$'
+            index_cache = []
+
+            if matching_names:
+                for matching_name in matching_names:
+                    match = re.search(pattern, matching_name)
+                    if match:       # indexed name exists
+                        index_cache.append(int(match.group(1)))
+
+                if not index_cache: return substr+'(1)'
+                else:
+                    return substr+f'({max(index_cache)+1})'
+
+            return substr
+
+        indname = naming(name, [x for x in self.plt_lines.keys()])
+        position = (np.asarray(canvas.mask) == canvas.mask_color)[:,:,3]    # extract a 2 dimensional boolean numpy array
+        wavelengths = np.linspace(470, 900, num= hsi.shape[2])
+        spectrum = []
+
+        for _ in range(hsi.shape[2]):                                       # iterate over all bands of hsi
+            masked_data = np.ma.array(hsi[:,:,_], mask= ~position)          # invert the mask since False means valid element in np.ma
+            masked_mean = np.ma.mean(masked_data)
+            spectrum.append(masked_mean)
+
+        # create plot and keep reference of it
+        self.plt_lines[indname], = self.ax.plot(wavelengths, spectrum, color= canvas.graph_color, label= indname)
+
+    def on_close(self, event):
+        global fig_flag
+        fig_flag = False
+
 class PlotSlice:
     def __init__(self) -> None:
+        global fig3d_flag
         self.index:int = 49
         self.bbox_hsi:np.ndarray = None
         self.bbox_mask:np.ndarray = None
@@ -188,8 +249,11 @@ class PlotSlice:
         # Initialize a 3D subplot
         self.fig3d = plt.figure('spatial plot')
         self.fig3d.canvas.mpl_connect('key_press_event', self.update_band)
+        self.fig3d.canvas.mpl_connect('close_event', self.on_close)
         self.ax3d = self.fig3d.add_subplot(111, projection= '3d')
         self.cbar = self.fig3d.colorbar(cm.ScalarMappable(norm= None, cmap= cm.coolwarm), ax= self.ax3d)
+
+        fig3d_flag = True
 
     def update_data(self):
         def mask_bbox(boolmask:np.ndarray)->tuple:
@@ -241,22 +305,9 @@ class PlotSlice:
 
         self.fig3d.canvas.draw()
 
-    def show_3d(self):
-        '''show 3d plot on one layer across spatial dimension'''
-
-        # block errors
-        try:
-            image_path
-        except:
-            print('No existing file, please load file')
-            return
-        if not hasattr(canvas, 'mask'):
-            print('No selected area')
-            return
-
-        self.update_data()
-        self.update_band()
-        self.fig3d.show()
+    def on_close(self, event):
+        global fig3d_flag
+        fig3d_flag = False
 
 class TLProgressBar(tk.Toplevel):
     def __init__(self, master, **kwargs):
@@ -331,6 +382,9 @@ class ZoomDrag(tk.Canvas):
 
         if hasattr(self, 'mask'):
             del self.mask
+
+            graph_button.configure(state= 'disabled')
+            plot3d_button.configure(state= 'disabled')
 
     def start_drag(self, event):
         self.start_x, self.start_y = event.x, event.y
@@ -474,6 +528,10 @@ class ZoomDrag(tk.Canvas):
             self.tkmask = ImageTk.PhotoImage(self.resized_mask)
         self.mask_id = self.create_image(bbox[0], bbox[1], image=self.tkmask, anchor=tk.NW, tags= ('image'))
 
+        # enable plots
+        graph_button.configure(state= 'normal')
+        plot3d_button.configure(state= 'normal')
+
     def pick_color(self, event):
         color = colorchooser.askcolor(title="Pick a Color", parent= root)
         if color:
@@ -486,7 +544,6 @@ root.protocol('WM_DELETE_WINDOW', on_closing)
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
-plot3d = PlotSlice()
 statusbar = ttk.Label(root, text= '', border= 1, relief= 'sunken', anchor= 'e')
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
 scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
@@ -494,17 +551,20 @@ scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, backgr
 color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
-graph_button = ttk.Button(root, text= 'apply graph', command= show_graph)
-plot3d_button = ttk.Button(root, text= '3D graph', command= plot3d.show_3d)
+graph_button = ttk.Button(root, text= 'apply graph', command= show_graph, state= 'disabled')
+plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d, state= 'disabled')
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
 file_menu.add_command(label="Change CWD", command= choose_cwd)
 file_menu.add_command(label="Open", command= open_hsi)
-file_menu.add_command(label="Save Canvas", command= save_image)
+save_menu = tk.Menu(menu_bar, tearoff=0)
+save_menu.add_command(label= "Export dir", command= change_des)
+save_menu.add_command(label="Save Canvas", command= save_image)
 
 # Add the File menu to the menu bar
 menu_bar.add_cascade(label="File", menu=file_menu)
+menu_bar.add_cascade(label="Save", menu=save_menu)
 
 # Configure the root window to use the menu bar
 root.config(menu=menu_bar)
@@ -524,19 +584,6 @@ plot3d_button.grid(row= 3, column= 0, padx=(PADX, 0))
 
 statusbar.grid(row= 4, column=0, columnspan= 2, sticky= 'WE')
 canvas.grid(row= 0, column= 1, rowspan= 4, padx= PADX, pady= 5)
-
-# Initialize 2Dplots globally
-fig = plt.figure('spectral plot')
-ax = fig.add_subplot(111)
-fig.canvas.mpl_connect('pick_event', on_pick_legend)
-# starting from Python 3.7, the built-in dict class also preserves the insertion order of elements
-plt_lines = {}                  # key= label, value = original line
-plt_lined = {}                  # Will map legend lines to original lines
-# Customize the plot
-ax.set_title('Spectrum Graph')
-plt.xlabel('wavelength')
-plt.ylabel('relative intensity')
-plt.grid(True)
 
 # Start the Tkinter event loop
 root.mainloop()
