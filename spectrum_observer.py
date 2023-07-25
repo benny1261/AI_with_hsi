@@ -12,6 +12,7 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.ticker import LinearLocator
 from matplotlib import cm
+import csv
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 # global variables
@@ -156,6 +157,23 @@ def show_3d():
     plot3d.update_band()
     plot3d.fig3d.show()
 
+def export_data():
+    data= {}
+    first_iter:bool= True
+
+    for key, value in plot2d.plt_lines.items():
+        if first_iter:
+            wavelengths = value.get_xdata()
+            first_iter= False
+        data[key]= value.get_ydata()
+
+    # Save the dictionary to a CSV file
+    with open("data.csv", "w", newline="") as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(["Wavelengths", *wavelengths])
+        for key, value in data.items():
+            csvwriter.writerow([key, *value])
+
 class PlotSpectrum:
     def __init__(self) -> None:
         global fig_flag
@@ -177,15 +195,24 @@ class PlotSpectrum:
 
     def update_legend(self):
         leg = self.ax.legend(fancybox=True, shadow=True)
+        leg.set_draggable(True)
         origlines = [value for value in self.plt_lines.values()]    # make a list of value in dict while preserving order (>Python3.7)
         for legline, origline in zip(leg.get_lines(), origlines):
             if legline not in [x for x in self.plt_lined.keys()]:   # avoid apply modifications to old Line2D objects more than one time
                 legline.set_picker(True)    # Enable picking on the legend line.
                 self.plt_lined[legline] = origline
                 legline.set_linewidth(3)
+        
+        # update export availability
+        if len(self.plt_lines) > 0:
+            save_spec_button.configure(state= 'normal')
+        else:
+            save_spec_button.configure(state= 'disabled')
 
     def on_pick_legend(self, event):
         legline = event.artist
+        if legline not in [x for x in self.plt_lined.keys()]:   # blocking mouse event from other object when set_draggable set to True
+            return
         origline = self.plt_lined[legline]
         if event.mouseevent.button == 1:        # left mouse click
             # find the original line corresponding to the legend proxy line, and toggle its visibility.
@@ -238,6 +265,7 @@ class PlotSpectrum:
     def on_close(self, event):
         global fig_flag
         fig_flag = False
+        save_spec_button.configure(state= 'disabled')
 
 class PlotSlice:
     def __init__(self) -> None:
@@ -544,14 +572,16 @@ root.protocol('WM_DELETE_WINDOW', on_closing)
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
-statusbar = ttk.Label(root, text= '', border= 1, relief= 'sunken', anchor= 'e')
+statusbar = ttk.Label(root, text= 'Author C.C.Hsu 2023', border= 1, relief= 'sunken', anchor= 'e')
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
 scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
                         font=('Times New Roman', 16))
 color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
-graph_button = ttk.Button(root, text= 'apply graph', command= show_graph, state= 'disabled')
+graph2d_monitor = tk.Frame(root)
+graph_button = ttk.Button(graph2d_monitor, text= 'apply graph', command= show_graph, state= 'disabled')
+save_spec_button = ttk.Button(graph2d_monitor, text= 'save as csv', command= export_data, state= 'disabled')
 plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d, state= 'disabled')
 
 # Create a File menu
@@ -579,7 +609,9 @@ tk.Label(color_monitor, text= 'graph color').grid(row= 0, column= 0, sticky= 'S'
 color_button.grid(row= 1, column= 0, columnspan= 2)
 tk.Label(color_monitor, text= 'current:').grid(row= 2, column= 0, pady= 10)
 current_color.grid(row= 2, column= 1, sticky= 'we')
-graph_button.grid(row= 2, column= 0, padx=(PADX, 0))
+graph2d_monitor.grid(row= 2, column= 0, padx=(PADX, 0))
+graph_button.grid(row= 0, column= 0)
+save_spec_button.grid(row= 1, column= 0, pady= (5,0))
 plot3d_button.grid(row= 3, column= 0, padx=(PADX, 0))
 
 statusbar.grid(row= 4, column=0, columnspan= 2, sticky= 'WE')
