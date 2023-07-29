@@ -115,10 +115,13 @@ class CustomDataset(Dataset):
 # input
 PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), r'data/slices')
 os.makedirs(os.path.join(PATH,"gen_img"), exist_ok=True)
+os.makedirs(os.path.join(PATH,r"gen_img/3D"), exist_ok=True)
 file_paths = glob.glob(os.path.join(PATH, '*.npy'))
+file_path_noext = []
 npy_list = []
 for file_path in file_paths:
     npy_list.append(np.load(file_path))
+    file_path_noext.append(os.path.splitext(os.path.basename(file_path))[0])
 print(f'{len(npy_list)} file loaded')
 
 # Loss function
@@ -210,5 +213,16 @@ for epoch in range(EPOCH):
 
         batches_done = epoch * len(dataloader) + i
         if batches_done % SAMPLE_INTERVAL == 0:
-            # per_imgs = gen_imgs.permute(0, 2, 3, 1)
+            # save experimental group 2D
             save_image(gen_imgs.data[:,49:50,:,:], os.path.join(PATH,"gen_img","%d.png") % batches_done, nrow=4, normalize=True)
+            # save GAN blocks
+            nhwc = np.asarray(gen_imgs.permute(0, 2, 3, 1).detach().cpu().numpy())
+            iter_dir = os.path.join(PATH,r"gen_img/3D","%d") % batches_done
+            os.makedirs((iter_dir), exist_ok=True)
+            for name, ganblock in zip(file_path_noext, nhwc):
+                np.save(os.path.join(iter_dir, name), ganblock)
+
+# save control group 2D
+tensor = torch.from_numpy(np.asarray(npy_list))     # NxHxWxC
+tensor = tensor.permute(0, 3, 1, 2)                 # NxCxHxW
+save_image(tensor.data[:, 49:50, :, :], os.path.join(PATH,"gen_img","control.png"), nrow=4, normalize=True)
