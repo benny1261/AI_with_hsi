@@ -18,6 +18,7 @@ spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 # global variables
 hsi: np.ndarray = None
 destination:str = os.getcwd()
+des_flag:bool = False
 fig3d_flag:bool = False
 fig_flag:bool = False
 
@@ -30,18 +31,22 @@ s.theme_use('clam')
 
 def choose_cwd():
     '''Let user select directory where they import data'''
+    global destination
 
     _ = filedialog.askdirectory(initialdir= os.getcwd())
     if _:
         os.chdir(_)
+        if not des_flag:
+            destination = _
 
 def change_des():
     '''Let user select directory where they export data'''
-    global destination
+    global destination, des_flag
 
     _ = filedialog.askdirectory(initialdir= destination)
     if _:
         destination = _
+        des_flag = True
 
 def open_hsi():
     global image_path, tic
@@ -92,7 +97,7 @@ def save_image():
         return
 
     if os.path.exists(os.path.join(destination, name) + ".png"):
-        response = messagebox.askquestion("File Exists", "A file with the same name already exists. Do you want to overwrite?")
+        response = messagebox.askquestion("File Exists", "A file with same name already exists. Confirm overwrite?")
         if response == 'no':
             return
 
@@ -158,9 +163,15 @@ def show_3d():
     plot3d.fig3d.show()
 
 def export_data():
+    '''export csv file'''
+    csv_path:str = os.path.join(destination, 'data.csv')
+    if os.path.exists(csv_path):
+        response = messagebox.askquestion("File Exists", "A file with same name already exists. Confirm overwrite?")
+        if response == 'no':
+            return
+
     data= {}
     first_iter:bool= True
-
     for key, value in plot2d.plt_lines.items():
         if first_iter:
             wavelengths = value.get_xdata()
@@ -168,11 +179,13 @@ def export_data():
         data[key]= value.get_ydata()
 
     # Save the dictionary to a CSV file
-    with open("data.csv", "w", newline="") as csvfile:
+    with open(csv_path, "w", newline="") as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(["Wavelengths", *wavelengths])
         for key, value in data.items():
             csvwriter.writerow([key, *value])
+
+    print("Data saved successfully to", destination)
 
 class PlotSpectrum:
     def __init__(self) -> None:
