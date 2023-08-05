@@ -25,10 +25,8 @@ import Utils
 VERIFY: bool = False
 PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
-# data = [(r'A549\masks\A549_10x_0.png', r'A549\A549_10x_0', (0,0)),
-#         (r'flou\masks\ht29epcam_0.png', r'flou\ht29epcam_0', (0,0))]
-data = [(r'CTC\masks\20230608_2.png', r'CTC\20230608_2'),
-        (r'CTC\20230608_2', 80), (r'CTC\20230610_1', 80), (r'CTC\20230617_v10-1', 80), (r'CTC\20230617_v10-2', 80)]
+data = [(r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'), r'slices']
+
 CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
 REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
 VALIDATION_SPLIT = 0.6              # occers error when lower than 0.5 (not solved)
@@ -44,9 +42,11 @@ seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      
 
 def load_dataset(data, denom:int= 1, mode:str= 'single'):
     '''mode:\n
-    \tsingle: (maskpath.png, hsipath)\n
-    \thstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
-    \tweighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...'''
+    single: (maskpath.png, hsipath)\n
+    hstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
+    weighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...] //patch/patchmask should in same dir\n
+    gans: [((maskpath.png, hsipath), (maskpath2.png, hsipath2),...), *patches_dirs] 
+    //patch/patchmask should in same dir, will use generated common mask if mask not found'''
 
     if VERIFY:
         mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
@@ -69,35 +69,33 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
                     gt_hsi = Utils.label_transfer(PATH+tup[0])
                     envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
                     data_hsi = envi_hsi.load()
-                elif index == 1:
-                    minor_patch = np.load(PATH+tup[0]+'.npy')
-                    minor_mask = Utils.label_preprocess(PATH+tup[0]+'_mask.png', 1)     # when class 1 is minor class
-                    weight = tup[1]
-                    ROWMAX = math.floor(gt_hsi.shape[0]/minor_mask.shape[0])
-                    col_full = math.floor(weight/ROWMAX)   # zero is acceptable
-                    remainder = weight%ROWMAX
-                    patch_block = np.tile(minor_patch, (ROWMAX, col_full, 1))
-                    mask_block = np.tile(minor_mask, (ROWMAX, col_full))
-                    remain_patch = np.tile(minor_patch, (remainder, 1, 1))
-                    remain_mask = np.tile(minor_mask, (remainder, 1))
                 else:
                     minor_patch = np.load(PATH+tup[0]+'.npy')
                     minor_mask = Utils.label_preprocess(PATH+tup[0]+'_mask.png', 1)     # when class 1 is minor class
-                    weight = tup[1]
-                    weight_aftercut = weight-(ROWMAX-remainder)
-                    if weight_aftercut >= 0:    # filled remain array
-                        remain_patch_filled = np.vstack((remain_patch, np.tile(minor_patch, (ROWMAX-remainder, 1, 1))))
-                        remain_mask_filled = np.vstack((remain_mask, np.tile(minor_mask, (ROWMAX-remainder, 1))))
-                        col_full = math.floor(weight_aftercut/ROWMAX)
-                        remainder = weight_aftercut%ROWMAX
-                        patch_block = np.hstack((np.tile(minor_patch, (ROWMAX, col_full, 1)), remain_patch_filled, patch_block))
-                        mask_block = np.hstack((np.tile(minor_mask, (ROWMAX, col_full)), remain_mask_filled, mask_block))
+                    weight = tup[1]                    
+                    if index == 1:
+                        ROWMAX = math.floor(gt_hsi.shape[0]/minor_mask.shape[0])
+                        col_full = math.floor(weight/ROWMAX)   # zero is acceptable
+                        remainder = weight%ROWMAX
+                        patch_block = np.tile(minor_patch, (ROWMAX, col_full, 1))
+                        mask_block = np.tile(minor_mask, (ROWMAX, col_full))
                         remain_patch = np.tile(minor_patch, (remainder, 1, 1))
                         remain_mask = np.tile(minor_mask, (remainder, 1))
                     else:
-                        remainder+= weight
-                        remain_patch = np.vstack((remain_patch, np.tile(weight, 1, 1)))
-                        remain_mask = np.vstack((remain_mask, np.tile(weight, 1)))
+                        weight_aftercut = weight-(ROWMAX-remainder)
+                        if weight_aftercut >= 0:    # filled remain array
+                            remain_patch_filled = np.vstack((remain_patch, np.tile(minor_patch, (ROWMAX-remainder, 1, 1))))
+                            remain_mask_filled = np.vstack((remain_mask, np.tile(minor_mask, (ROWMAX-remainder, 1))))
+                            col_full = math.floor(weight_aftercut/ROWMAX)
+                            remainder = weight_aftercut%ROWMAX
+                            patch_block = np.hstack((np.tile(minor_patch, (ROWMAX, col_full, 1)), remain_patch_filled, patch_block))
+                            mask_block = np.hstack((np.tile(minor_mask, (ROWMAX, col_full)), remain_mask_filled, mask_block))
+                            remain_patch = np.tile(minor_patch, (remainder, 1, 1))
+                            remain_mask = np.tile(minor_mask, (remainder, 1))
+                        else:
+                            remainder+= weight
+                            remain_patch = np.vstack((remain_patch, np.tile(weight, 1, 1)))
+                            remain_mask = np.vstack((remain_mask, np.tile(weight, 1)))
                 if index == len(data)-1:    # fill into block
                     padtile3d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0),(0,0))
                     padtile2d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0))

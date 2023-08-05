@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import random
 import os
-import spectral
 from spectral.io import envi
 from scipy.ndimage import label
+import glob
 # from sklearn import metrics, preprocessing
 # from sklearn.preprocessing import MinMaxScaler
 # from sklearn.decomposition import PCA
@@ -224,22 +224,41 @@ def simple_select(cube: np.ndarray, denominator: int)-> np.ndarray:
 
     return np.array(recursive_stack(cube[:,:,0], 1))
 
+def labeled_filled_circle(shape:int, label:int)->np.ndarray:
+    '''returns a (shape*shape) 2D numpy array with 0 as background and label value as filled circle in center.\n
+    radius of circle is set to 3/8 of shape.'''
+    y, x = np.ogrid[:shape, :shape]
+    distance = np.sqrt((x - shape//2) ** 2 + (y - shape//2) ** 2)
+    radius = shape*3//8
+    return np.where(distance <= radius, 1, 0).astype(np.uint8)*label
+
+def blockize(hsi_with_mask:list[tuple[list,np.ndarray]], patch_with_mask:list[tuple[np.ndarray,np.ndarray|None]]):
+    '''hsi_with_mask: [(hsi, hsi_mask),...]\n
+    patch_with_mask: [(patch, patch_mask),...]\n
+    @ hsi is not neccessary np.ndarray, an array like list should work
+    @ you may pass in None for patch_mask'''
+
+    pass
+
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     PATH = r'../data/'
-    CUT_SIZE = (1000, 2000)
-    spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 
-    data = (r'/mix/masks/1214_20x_wbc+A549_3.png', r'/mix/1214_20x_wbc+A549_3')
+    data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'), (r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
+            , r'slices']
 
-    # for _ in range(len(data)):
-    #     label_path, hsi_path, anchor = data[_]
-    #     labeled = label_preprocess(PATH+label_path, _+1)  # auto labeling
-    #     hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw")
-    #     data[_] = (labeled, hsi, anchor)
+    def read(data):
+        for tup in data[0]:
+            gt_hsi = label_transfer(PATH+tup[0])
+            envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
+            data_hsi = envi_hsi.load()
 
-    # _ = np.asarray(Image.open(PATH+data[0]))
-    # print(_.shape)
-    gt_hsi = label_transfer(PATH+data[0])
-    data_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
+        for patch_dir in data[1:]:
+            npy_paths = glob.glob(PATH+patch_dir+r'/*.npy')
+            for npy_path in npy_paths:
+                print(npy_path)
+                minor_patch = np.load(npy_path)
+                minor_mask = label_preprocess(npy_path.replace('.npy','_mask.png'), 1)  # when class 1 is minor class
+
+    read(data)

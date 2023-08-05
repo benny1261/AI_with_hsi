@@ -11,9 +11,9 @@ import torch.nn as nn
 # import torch.nn.functional as F
 import torch
 
-EPOCH:int = 2000
+EPOCH:int = 3000
 BATCH_SIZE:int = 32             # orig 64
-LR:float = 0.0008               # orig 0.0002
+LR:float = 0.0004               # orig 0.0002
 B1:float = 0.5                  # adam: decay of first order momentum of gradient
 B2:float = 0.999                # adam: decay of first order momentum of gradient
 LATENT_DIM:int = 100
