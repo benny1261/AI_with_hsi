@@ -2,6 +2,7 @@ import collections
 import math
 import time
 import os
+import glob
 
 import numpy as np
 import scipy.io as sio
@@ -25,7 +26,10 @@ import Utils
 VERIFY: bool = False
 PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
-data = [(r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'), r'slices']
+# data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),(r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
+#         , (r'slices\20230608_2', 40), (r'slices\20230617_v2-4_0', 40), (r'slices\20230617_v2-4_1', 40)]
+data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
+        , r'slices', r'slices\gen_img\3D\2000', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200']
 
 CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
 REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
@@ -45,8 +49,9 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
     single: (maskpath.png, hsipath)\n
     hstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
     weighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...] //patch/patchmask should in same dir\n
-    gans: [((maskpath.png, hsipath), (maskpath2.png, hsipath2),...), *patches_dirs] 
-    //patch/patchmask should in same dir, will use generated common mask if mask not found'''
+    gans: [((maskpath.png, hsipath), (maskpath2.png, hsipath2),...), *patches_dirs]
+    @ patch/patchmask should in same dir, will use generated common mask if mask not found
+    @ in weighted/gans mode you should add a comma if only one hsi, ex: [((maskpath.png, hsipath),), *patches_dirs]'''
 
     if VERIFY:
         mat_data = sio.loadmat(PATH + 'Indian_pines_corrected.mat')
@@ -55,59 +60,56 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
         gt_hsi = mat_gt['indian_pines_gt']                      # 145*145
     else:
         spectral.settings.envi_support_nonlowercase_params = 'TRUE'
+        hsi_dict = {'data':[], 'mask':[]}
+        patch_dict = {'data':[], 'mask':[]}
+
         if mode == 'hstack':
             for _ in range(len(data)):
                 label_path, hsi_path, anchor = data[_]
-                labeled = Utils.label_preprocess(PATH+label_path, _+1)  # auto labeling
+                labeled = Utils.label_preprocess(PATH+label_path, _+1)      # auto labeling
                 hsi = envi.open(PATH+hsi_path + ".hdr" , PATH+hsi_path + ".raw").load()
                 data[_] = (labeled, hsi, anchor)
             gt_hsi, data_hsi = Utils.cut_hstack(CUT_SIZE, data)
 
-        elif mode == 'weighted':
-            for index, tup in enumerate(data):
-                if index == 0:
-                    gt_hsi = Utils.label_transfer(PATH+tup[0])
-                    envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
-                    data_hsi = envi_hsi.load()
-                else:
-                    minor_patch = np.load(PATH+tup[0]+'.npy')
-                    minor_mask = Utils.label_preprocess(PATH+tup[0]+'_mask.png', 1)     # when class 1 is minor class
-                    weight = tup[1]                    
-                    if index == 1:
-                        ROWMAX = math.floor(gt_hsi.shape[0]/minor_mask.shape[0])
-                        col_full = math.floor(weight/ROWMAX)   # zero is acceptable
-                        remainder = weight%ROWMAX
-                        patch_block = np.tile(minor_patch, (ROWMAX, col_full, 1))
-                        mask_block = np.tile(minor_mask, (ROWMAX, col_full))
-                        remain_patch = np.tile(minor_patch, (remainder, 1, 1))
-                        remain_mask = np.tile(minor_mask, (remainder, 1))
+        elif mode == 'gans':
+            for tup in data[0]:
+                hsi_dict['mask'].append(Utils.label_transfer(PATH+tup[0]))
+                envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
+                hsi_dict['data'].append(envi_hsi.load())
+
+            for patch_dir in data[1:]:
+                npy_paths = glob.glob(PATH+patch_dir+r'/*.npy')
+                for npy_path in npy_paths:
+                    patch_dict['data'].append(np.load(npy_path))
+                    patch_mask_path = npy_path.replace('.npy','_mask.png')
+                    if os.path.exists(patch_mask_path):
+                        patch_dict['mask'].append(Utils.label_preprocess(patch_mask_path, 1))   # when class 1 is minor class
                     else:
-                        weight_aftercut = weight-(ROWMAX-remainder)
-                        if weight_aftercut >= 0:    # filled remain array
-                            remain_patch_filled = np.vstack((remain_patch, np.tile(minor_patch, (ROWMAX-remainder, 1, 1))))
-                            remain_mask_filled = np.vstack((remain_mask, np.tile(minor_mask, (ROWMAX-remainder, 1))))
-                            col_full = math.floor(weight_aftercut/ROWMAX)
-                            remainder = weight_aftercut%ROWMAX
-                            patch_block = np.hstack((np.tile(minor_patch, (ROWMAX, col_full, 1)), remain_patch_filled, patch_block))
-                            mask_block = np.hstack((np.tile(minor_mask, (ROWMAX, col_full)), remain_mask_filled, mask_block))
-                            remain_patch = np.tile(minor_patch, (remainder, 1, 1))
-                            remain_mask = np.tile(minor_mask, (remainder, 1))
-                        else:
-                            remainder+= weight
-                            remain_patch = np.vstack((remain_patch, np.tile(weight, 1, 1)))
-                            remain_mask = np.vstack((remain_mask, np.tile(weight, 1)))
-                if index == len(data)-1:    # fill into block
-                    padtile3d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0),(0,0))
-                    padtile2d = ((0,minor_mask.shape[0]*(ROWMAX-remainder)),(0,0))
-                    remain_patch_filled = np.pad(remain_patch, padtile3d, mode='constant', constant_values= 0)
-                    remain_mask_filled = np.pad(remain_mask, padtile2d, mode='constant', constant_values= 0)
-                    patch_block = np.hstack((remain_patch_filled, patch_block))
-                    mask_block = np.hstack((remain_mask_filled, mask_block))
-            print('mask block shape:', mask_block.shape)
-            patch_to_hsi_height = np.pad(patch_block, ((0,gt_hsi.shape[0]-mask_block.shape[0]),(0,0),(0,0)), 'constant', constant_values= 0)
-            mask_to_hsi_height = np.pad(mask_block, ((0,gt_hsi.shape[0]-mask_block.shape[0]),(0,0)), 'constant', constant_values= 0)
-            gt_hsi = np.hstack((mask_to_hsi_height, gt_hsi))
-            data_hsi = np.hstack((patch_to_hsi_height, data_hsi))
+                        patch_dict['mask'].append(None)
+
+            data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict)
+
+        elif mode == 'weighted':
+            for tup in data[0]:
+                hsi_dict['mask'].append(Utils.label_transfer(PATH+tup[0]))
+                envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
+                hsi_dict['data'].append(envi_hsi.load())
+
+            for patch_tup in data[1:]:
+                npy_path = PATH + patch_tup[0] + '.npy'
+                patch_mask_path = npy_path.replace('.npy','_mask.png')
+                patch_data = np.load(npy_path)
+                if os.path.exists(patch_mask_path):
+                    patch_mask = Utils.label_preprocess(patch_mask_path, 1)         # when class 1 is minor class
+                else:
+                    patch_mask = None
+
+                for _ in range(patch_tup[1]):
+                    patch_dict['data'].append(patch_data)
+                    patch_dict['mask'].append(patch_mask)
+
+            data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict)
+            Utils.direct_map(gt_hsi)
                     
         else:   # basic single mode
             gt_hsi = Utils.label_transfer(PATH+data[0])
@@ -498,7 +500,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
     os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'weighted')
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'gans')
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 

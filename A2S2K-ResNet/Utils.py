@@ -6,6 +6,7 @@ import os
 from spectral.io import envi
 from scipy.ndimage import label
 import glob
+import time
 # from sklearn import metrics, preprocessing
 # from sklearn.preprocessing import MinMaxScaler
 # from sklearn.decomposition import PCA
@@ -195,6 +196,8 @@ def cut_merge(size:tuple, data) -> tuple :
 
 def direct_map(*arrays):
     '''used for quick visualizing label or predictions'''
+    tic = time.time()
+    print('start mapping as png')
     for ind, arr in enumerate(arrays):
         arr = np.where(arr==0, 17, arr)
         arr = arr[:,:]-1
@@ -202,6 +205,9 @@ def direct_map(*arrays):
         color = list_to_colormap(rav)
         color = np.reshape(color, (arr.shape[0], arr.shape[1], 3))
         classification_map(color, arr, 300, str(ind) + '.png')
+
+    toc = time.time()
+    print(f'finished mapping in {toc-tic} seconds')
 
 def simple_select(cube: np.ndarray, denominator: int)-> np.ndarray:
     '''For decreasing band amounts in hsi'''
@@ -232,33 +238,90 @@ def labeled_filled_circle(shape:int, label:int)->np.ndarray:
     radius = shape*3//8
     return np.where(distance <= radius, 1, 0).astype(np.uint8)*label
 
-def blockize(hsi_with_mask:list[tuple[list,np.ndarray]], patch_with_mask:list[tuple[np.ndarray,np.ndarray|None]]):
-    '''hsi_with_mask: [(hsi, hsi_mask),...]\n
-    patch_with_mask: [(patch, patch_mask),...]\n
+def blockize(hsi_with_mask:dict, patch_with_mask:dict, minor_label:int= 1)-> tuple[np.ndarray, np.ndarray]:
+    '''hsi_with_mask: {'data':list of hsi, ''mask':list of ndarray mask}\n
+    patch_with_mask: {'data':list of patch, ''mask':list of ndarray mask}\n
     @ hsi is not neccessary np.ndarray, an array like list should work
-    @ you may pass in None for patch_mask'''
+    @ None is acceptable for mask of patch
+    @ return: hsi block, mask block'''
 
-    pass
+    print('start tidying up data')
+    tic = time.time()
+    # vstack main hsi block -------------------------------------------------------------
+    major_block = np.vstack(hsi_with_mask['data'])  # width should be identical
+    major_mask = np.vstack(hsi_with_mask['mask'])   # width should be identical
 
+    PATCH_HEIGHT:int = patch_with_mask['data'][0].shape[0]
+    BLOCK_HEIGHT:int = major_mask.shape[0]
+    ROWMAX:int = BLOCK_HEIGHT//PATCH_HEIGHT
+    # auto generate mask for patch mask where there are none
+    patch_with_mask['mask'] = [labeled_filled_circle(PATCH_HEIGHT, minor_label) if patch is None
+                               else patch for patch in patch_with_mask['mask']]
+
+    # tile patches ----------------------------------------------------------------------
+    remain_patch:int = len(patch_with_mask['mask'])
+    minor_patch_tiles = []      # list to store tiles of patches
+    minor_mask_tiles = []
+    row_index:int = 0           # row counter
+
+    while remain_patch > 0:
+        if remain_patch >= ROWMAX:
+            minor_patch_tiles.append(np.vstack(patch_with_mask['data'][ROWMAX*row_index:ROWMAX*(row_index+1)]))
+            minor_mask_tiles.append(np.vstack(patch_with_mask['mask'][ROWMAX*row_index:ROWMAX*(row_index+1)]))
+        else:
+            incomplete_patch_tile = np.vstack(patch_with_mask['data'][ROWMAX*row_index:])
+            incomplete_mask_tile = np.vstack(patch_with_mask['mask'][ROWMAX*row_index:])
+            padtile3d = ((0,PATCH_HEIGHT*(ROWMAX-remain_patch)),(0,0),(0,0))
+            padtile2d = ((0,PATCH_HEIGHT*(ROWMAX-remain_patch)),(0,0))
+            minor_patch_tiles.append(np.pad(incomplete_patch_tile, padtile3d, mode='constant', constant_values= 0))
+            minor_mask_tiles.append(np.pad(incomplete_mask_tile, padtile2d, mode='constant', constant_values= 0))
+        # update counters
+        row_index+= 1
+        remain_patch-= ROWMAX
+
+    minor_block = np.hstack(minor_patch_tiles)
+    minor_mask = np.hstack(minor_mask_tiles)
+
+    # make major and minor block same height
+    minor_block = np.pad(minor_block, ((0,BLOCK_HEIGHT-PATCH_HEIGHT*ROWMAX),(0,0),(0,0)), mode='constant', constant_values= 0)
+    minor_mask = np.pad(minor_mask, ((0,BLOCK_HEIGHT-PATCH_HEIGHT*ROWMAX),(0,0)), mode='constant', constant_values= 0)
+
+    # hstack major and minor blocks
+    final_block = np.hstack((major_block, minor_block))
+    final_mask = np.hstack((major_mask, minor_mask))
+
+    toc = time.time()
+    print(f'finish tidying up data in {toc-tic} seconds')
+    return final_block, final_mask
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     PATH = r'../data/'
 
-    data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'), (r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
-            , r'slices']
+    data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
+            , r'slices', r'slices\gen_img\3D\2000', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200']
 
     def read(data):
+        hsi_dict = {'data':[], 'mask':[]}
+        patch_dict = {'data':[], 'mask':[]}
         for tup in data[0]:
-            gt_hsi = label_transfer(PATH+tup[0])
+            hsi_dict['mask'].append(label_transfer(PATH+tup[0]))
             envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
-            data_hsi = envi_hsi.load()
+            hsi_dict['data'].append(envi_hsi.load())
 
         for patch_dir in data[1:]:
             npy_paths = glob.glob(PATH+patch_dir+r'/*.npy')
             for npy_path in npy_paths:
-                print(npy_path)
-                minor_patch = np.load(npy_path)
-                minor_mask = label_preprocess(npy_path.replace('.npy','_mask.png'), 1)  # when class 1 is minor class
+                patch_dict['data'].append(np.load(npy_path))
+                patch_mask_path = npy_path.replace('.npy','_mask.png')
+                if os.path.exists(patch_mask_path):
+                    patch_dict['mask'].append(label_preprocess(patch_mask_path, 1))    # when class 1 is minor class
+                else:
+                    patch_dict['mask'].append(None)
+
+        hsi, mask = blockize(hsi_dict, patch_dict)
+
+        # -------------------------------------------
+        direct_map(mask)
 
     read(data)
