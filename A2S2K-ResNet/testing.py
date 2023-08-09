@@ -31,8 +31,8 @@ def extract_parameters(model_name: str):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
     # data = (r'CTC\masks\20230610_1.png', r'CTC\20230610_1')
-    data = (r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3')
-    MODEL = "window7_split0.6_lr0.001_adam_kernel24_bands150_classes2_denom1_1.0.pt"
+    data = (r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4')
+    MODEL = "window7_split0.6_lr0.001_adam_kernel24_bands150_classes2_denom1_0.998.pt"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32

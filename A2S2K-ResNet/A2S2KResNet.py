@@ -29,7 +29,8 @@ PATH = r'../data/'
 # data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),(r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
 #         , (r'slices\20230608_2', 40), (r'slices\20230617_v2-4_0', 40), (r'slices\20230617_v2-4_1', 40)]
 data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
-        , r'slices', r'slices\gen_img\3D\2000', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200']
+        , r'slices', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200', r'slices\gen_img\3D\2300',
+        r'slices\gen_img\3D\2400', r'slices\gen_img\3D\2500', r'slices\gen_img\3D\2600']
 
 CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
 REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
@@ -87,6 +88,7 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
                     else:
                         patch_dict['mask'].append(None)
 
+            print(f'{len(hsi_dict["data"])} hsi used, {len(patch_dict["data"])} patch used.')
             data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict)
 
         elif mode == 'weighted':
@@ -108,8 +110,8 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
                     patch_dict['data'].append(patch_data)
                     patch_dict['mask'].append(patch_mask)
 
+            print(f'{len(hsi_dict["data"])} hsi used, {len(patch_dict["data"])} patch used.')
             data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict)
-            Utils.direct_map(gt_hsi)
                     
         else:   # basic single mode
             gt_hsi = Utils.label_transfer(PATH+data[0])
