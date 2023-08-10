@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, colorchooser, ttk
+from typing_extensions import Literal
 from spectral.io import envi
 import spectral
 from PIL import ImageTk, Image, ImageDraw
@@ -74,7 +75,7 @@ def thread_monitor(window, thread):
         toc = time.time()
         print('loading time:', toc-tic, 'seconds')
         statusbar.configure(text= f'{os.path.basename(image_path)} (h:{hsi.shape[0]},w:{hsi.shape[1]},c:{hsi.shape[2]})')
-        canvas.load_array(hsi)
+        canvas.load_array(hsi, thread.normed_arr_cache)
 
 def longest_slice_between_duplicate_elements(lst):
     seen = {}       # Dictionary to store the seen elements and their indices
@@ -373,6 +374,7 @@ class Import_thread(Thread):                                                    
     def __init__(self):
         super().__init__()                                                          # run __init__ of parent class
         self.hsi_cache= None
+        self.normed_arr_cache= None
 
     def run(self):                                                                  # overwrites run() method from parent class
         extention_type = os.path.splitext(image_path)[1]
@@ -381,11 +383,21 @@ class Import_thread(Thread):                                                    
         else:
             arr = envi.open(image_path , image_path.replace('.hdr','.raw')).load()
             self.hsi_cache = np.asarray(arr)
+        self.normed_arr_cache = self.norm_arr(self.hsi_cache)
+
+    def norm_arr(self, arr:np.ndarray)->np.ndarray:
+        stack_list=[]
+        for channel in range(arr.shape[2]):
+            onechan = arr[:,:,channel]
+            normed_gray = (((onechan - np.min(onechan)) / (np.max(onechan) - np.min(onechan))) * 255).astype('uint8')
+            stack_list.append(normed_gray)
+        return np.stack(stack_list, axis=2)
 
 class ZoomDrag(tk.Canvas):
     def __init__(self, master: any, width:int= 1000, height:int= 750, bg = 'black', **kwargs):
         super().__init__(master, width=width, height=height, bg= bg, **kwargs)
         self.scale_factor = tk.IntVar(value= 1)
+        self.band = tk.IntVar(value= 50)
         self.effective_offset = (0,0)
         self.arr = None
         self.image_id = None
@@ -406,26 +418,30 @@ class ZoomDrag(tk.Canvas):
         self.bind("<B3-Motion>", self.draw)
         self.bind('<Button-2>', self.pick_color)
 
-    def load_array(self, arr):
+    def load_array(self, arr, normed_arr):
+
         self.delete('all')
         self.arr = arr
+        self.normed_arr = normed_arr
         self.scale_factor.set(1)
         self.effective_offset = (0,0)
         self.image_id = None
         self.mask_id = None
-        if arr is not None:
-            onechan = arr[:,:,49]
-            normed_gray = (((onechan - np.min(onechan)) / (np.max(onechan) - np.min(onechan))) * 255).astype('uint8')
-            normed_gray = Image.fromarray(normed_gray, mode= 'L')
-            self.pil_image = normed_gray
-            self.update_image()
-            self.addtag("image", 'withtag', self.image_id)
 
+        self.update_band()
         if hasattr(self, 'mask'):
             del self.mask
 
             graph_button.configure(state= 'disabled')
             plot3d_button.configure(state= 'disabled')
+
+    def update_band(self, *event):
+        if np.any(self.arr) == None:
+            return
+        normed_gray = Image.fromarray(self.normed_arr[:,:,self.band.get()-1], mode= 'L')
+        self.pil_image = normed_gray
+        self.update_image()
+        self.addtag("image", 'withtag', self.image_id)
 
     def start_drag(self, event):
         self.start_x, self.start_y = event.x, event.y
@@ -476,6 +492,7 @@ class ZoomDrag(tk.Canvas):
         self.effective_offset = offset_x//self.scale_factor.get(), offset_y//self.scale_factor.get()
 
     def update_image(self):
+        '''show pil_image based on its scale and position, mask included if exist'''
         width = int(self.pil_image.width * self.scale_factor.get())
         height = int(self.pil_image.height * self.scale_factor.get())
 
@@ -587,8 +604,6 @@ canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
 statusbar = ttk.Label(root, text= 'Author C.C.Hsu 2023', border= 1, relief= 'sunken', anchor= 'e')
 scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
-scale_label = ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
-                        font=('Times New Roman', 16))
 color_monitor = tk.Frame(root)
 color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
 current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
@@ -596,6 +611,10 @@ graph2d_monitor = tk.Frame(root)
 graph_button = ttk.Button(graph2d_monitor, text= 'apply graph', command= show_graph, state= 'disabled')
 save_spec_button = ttk.Button(graph2d_monitor, text= 'save as csv', command= export_data, state= 'disabled')
 plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d, state= 'disabled')
+band_monitor = tk.Frame(root)
+band_label = tk.Label(band_monitor, text= canvas.band.get())        # didn't use textvariable cause ttk.Label will show lots of digits
+band_scalebar = ttk.Scale(band_monitor, from_= 1, to= 150, variable= canvas.band, 
+                          command= lambda x: (canvas.update_band(x), band_label.configure(text=canvas.band.get())))
 
 # Create a File menu
 file_menu = tk.Menu(menu_bar, tearoff=0)
@@ -615,8 +634,10 @@ root.config(menu=menu_bar)
 # place wigets
 PADX = 10
 scale_monitor.grid(row= 0, column= 0, padx= (PADX, 0))
-tk.Label(scale_monitor, text= 'scale: ', bg= 'gray80', fg= 'blue', font= ('Times New Roman', 16)).grid(row= 0, column= 0, sticky= 'E')
-scale_label.grid(row= 0, column= 1, sticky= 'W')
+ttk.Label(scale_monitor, text= 'scale: ', background= 'gray80', foreground= 'blue',
+          font= ('Times New Roman', 16)).grid(row= 0, column= 0, sticky= 'E')
+ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
+          font=('Times New Roman', 16)).grid(row= 0, column= 1, sticky= 'W')
 color_monitor.grid(row= 1, column= 0, padx= (PADX, 0))
 tk.Label(color_monitor, text= 'graph color').grid(row= 0, column= 0, sticky= 'S', columnspan= 2)
 color_button.grid(row= 1, column= 0, columnspan= 2)
@@ -626,9 +647,13 @@ graph2d_monitor.grid(row= 2, column= 0, padx=(PADX, 0))
 graph_button.grid(row= 0, column= 0)
 save_spec_button.grid(row= 1, column= 0, pady= (5,0))
 plot3d_button.grid(row= 3, column= 0, padx=(PADX, 0))
+band_monitor.grid(row= 4, column= 0, padx=(PADX, 0))
+tk.Label(band_monitor, text= 'band: ').grid(row= 0, column= 0, sticky='E')
+band_label.grid(row= 0, column= 1, sticky='W')
+band_scalebar.grid(row= 1, columnspan= 2)
 
-statusbar.grid(row= 4, column=0, columnspan= 2, sticky= 'WE')
-canvas.grid(row= 0, column= 1, rowspan= 4, padx= PADX, pady= 5)
+statusbar.grid(row= 5, column=0, columnspan= 2, sticky= 'WE')
+canvas.grid(row= 0, column= 1, rowspan= 5, padx= PADX, pady= 5)
 
 # Start the Tkinter event loop
 root.mainloop()
