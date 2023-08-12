@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, colorchooser, ttk
-from typing_extensions import Literal
 from spectral.io import envi
 import spectral
 from PIL import ImageTk, Image, ImageDraw
@@ -14,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LinearLocator
 from matplotlib import cm
 import csv
+import cv2
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
 # global variables
@@ -76,6 +76,9 @@ def thread_monitor(window, thread):
         print('loading time:', toc-tic, 'seconds')
         statusbar.configure(text= f'{os.path.basename(image_path)} (h:{hsi.shape[0]},w:{hsi.shape[1]},c:{hsi.shape[2]})')
         canvas.load_array(hsi, thread.normed_arr_cache)
+
+        # enable some functions
+        hough_button.configure(state= 'normal')
 
 def longest_slice_between_duplicate_elements(lst):
     seen = {}       # Dictionary to store the seen elements and their indices
@@ -187,6 +190,16 @@ def export_data():
             csvwriter.writerow([key, *value])
 
     print("Data saved successfully to", destination)
+
+def switch_frame(*event):
+    slaves = root.grid_slaves(0,0)
+    if slaves:
+        slaves[0].grid_remove()
+    frame= frames[current_mode.get()]
+    frame.grid(row= 0, column= 0, padx= (PADX, 0), sticky= 'NSEW')
+
+    # switch settings in canvas
+    canvas.switch_mode(current_mode.get())
 
 class PlotSpectrum:
     def __init__(self) -> None:
@@ -389,7 +402,8 @@ class Import_thread(Thread):                                                    
         stack_list=[]
         for channel in range(arr.shape[2]):
             onechan = arr[:,:,channel]
-            normed_gray = (((onechan - np.min(onechan)) / (np.max(onechan) - np.min(onechan))) * 255).astype('uint8')
+            # normed_gray = (((onechan - np.min(onechan)) / (np.max(onechan) - np.min(onechan))) * 255).astype('uint8')
+            normed_gray = cv2.normalize(onechan, None, 0,255, cv2.NORM_MINMAX, cv2.CV_8UC1)
             stack_list.append(normed_gray)
         return np.stack(stack_list, axis=2)
 
@@ -413,10 +427,33 @@ class ZoomDrag(tk.Canvas):
         self.bind('<MouseWheel>', self.zoom)
         self.bind('<Button-4>', self.zoom)
         self.bind('<Button-5>', self.zoom)
+        self.analysis_binds()
+
+    def switch_mode(self, mode:str):
+        # bindings
+        self.unbind_dynamic()
+        if mode == 'Analysis':
+            self.analysis_binds()
+        if mode == 'Hough':
+            self.hough_binds()
+        # images
+        self.itemconfigure('dynamic', state= 'hidden')
+        self.itemconfigure(mode.lower(), state= 'normal')
+
+    def analysis_binds(self):
         self.bind("<ButtonPress-3>", self.start_drawing)
         self.bind("<ButtonRelease-3>", self.stop_drawing)
         self.bind("<B3-Motion>", self.draw)
         self.bind('<Button-2>', self.pick_color)
+
+    def hough_binds(self):
+        pass
+
+    def unbind_dynamic(self):
+        self.unbind("<ButtonPress-3>")
+        self.unbind("<ButtonRelease-3>")
+        self.unbind("<B3-Motion>")
+        self.unbind('<Button-2>')
 
     def load_array(self, arr, normed_arr):
 
@@ -438,8 +475,17 @@ class ZoomDrag(tk.Canvas):
     def update_band(self, *event):
         if np.any(self.arr) == None:
             return
-        normed_gray = Image.fromarray(self.normed_arr[:,:,self.band.get()-1], mode= 'L')
-        self.pil_image = normed_gray
+        self.normed_gray = self.normed_arr[:,:,self.band.get()-1]
+        # xx = cv2.HoughCircles(
+        #     self.normed_gray,
+        #     cv2.HOUGH_GRADIENT_ALT,
+        #     dp=1.5,
+        #     minDist=6,
+        #     param1=10,
+        #     param2=0.5,
+        #     minRadius=6,
+        #     maxRadius=16)
+        self.pil_image = Image.fromarray(self.normed_gray, mode= 'L')
         self.update_image()
         self.addtag("image", 'withtag', self.image_id)
 
@@ -508,7 +554,7 @@ class ZoomDrag(tk.Canvas):
             self.resized_mask = self.mask.resize((self.mask.width*self.scale_factor.get(),self.mask.height*self.scale_factor.get()),
                                                  Image.Resampling.NEAREST)
             self.tkmask = ImageTk.PhotoImage(self.resized_mask)
-            self.mask_id = self.create_image(anchor_x, anchor_y, image=self.tkmask, anchor= 'center', tags= ('image'))
+            self.mask_id = self.create_image(anchor_x, anchor_y, image=self.tkmask, anchor= 'center', tags= ('image','dynamic','analysis'))
 
     def zoom(self, event):
         if self.drawing or not self.image_id:
@@ -584,7 +630,7 @@ class ZoomDrag(tk.Canvas):
         else:
             self.resized_mask = self.mask
             self.tkmask = ImageTk.PhotoImage(self.resized_mask)
-        self.mask_id = self.create_image(bbox[0], bbox[1], image=self.tkmask, anchor=tk.NW, tags= ('image'))
+        self.mask_id = self.create_image(bbox[0], bbox[1], image=self.tkmask, anchor=tk.NW, tags= ('image','dynamic','analysis'))
 
         # enable plots
         graph_button.configure(state= 'normal')
@@ -596,27 +642,35 @@ class ZoomDrag(tk.Canvas):
             current_color.configure(bg= color[1])
             self.graph_color = color[1]     # HEX color code
 
+class CustomEntry(ttk.Entry):
+    def __init__(self, master, root, allow_float:bool= False):
+        validate_input_cmd = root.register(self.validate_input)
+        super().__init__(master, validate="key", validatecommand=(validate_input_cmd, "%d", "%P")
+                        , width= 10)
+        self.allow_float = allow_float
+
+    def validate_input(self, action, new_value:str):
+        if action == '1':  # Insert action
+            if self.allow_float:
+                new_value = new_value.replace('.','',1) # only first decimal point is valid
+            if new_value.isdigit():
+                return True
+            else:
+                return False
+        return True
+
 # Closing protocal
 root.protocol('WM_DELETE_WINDOW', on_closing)
+
+# frame dict
+frames={}
 
 # define widgets
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
 statusbar = ttk.Label(root, text= 'Author C.C.Hsu 2023', border= 1, relief= 'sunken', anchor= 'e')
-scale_monitor = tk.Frame(root, bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
-color_monitor = tk.Frame(root)
-color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
-current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
-graph2d_monitor = tk.Frame(root)
-graph_button = ttk.Button(graph2d_monitor, text= 'apply graph', command= show_graph, state= 'disabled')
-save_spec_button = ttk.Button(graph2d_monitor, text= 'save as csv', command= export_data, state= 'disabled')
-plot3d_button = ttk.Button(root, text= '3D graph', command= show_3d, state= 'disabled')
-band_monitor = tk.Frame(root)
-band_label = tk.Label(band_monitor, text= canvas.band.get())        # didn't use textvariable cause ttk.Label will show lots of digits
-band_scalebar = ttk.Scale(band_monitor, from_= 1, to= 150, variable= canvas.band, 
-                          command= lambda x: (canvas.update_band(x), band_label.configure(text=canvas.band.get())))
 
-# Create a File menu
+# Create menus
 file_menu = tk.Menu(menu_bar, tearoff=0)
 file_menu.add_command(label="Change CWD", command= choose_cwd)
 file_menu.add_command(label="Open", command= open_hsi)
@@ -631,29 +685,91 @@ menu_bar.add_cascade(label="Save", menu=save_menu)
 # Configure the root window to use the menu bar
 root.config(menu=menu_bar)
 
-# place wigets
+# analysis widgets
+frames['Analysis'] = tk.Frame(root)
+scale_monitor = tk.Frame(frames['Analysis'], bg="gray80", bd=2, relief="solid", highlightbackground= 'black')
+color_monitor = tk.Frame(frames['Analysis'])
+color_button = ttk.Button(color_monitor, text= 'change', command= lambda: canvas.pick_color(None))
+current_color = tk.Label(color_monitor, width= 1, height= 1, background= canvas.graph_color)
+graph2d_monitor = tk.Frame(frames['Analysis'])
+graph_button = ttk.Button(graph2d_monitor, text= 'apply graph', command= show_graph, state= 'disabled')
+save_spec_button = ttk.Button(graph2d_monitor, text= 'save as csv', command= export_data, state= 'disabled')
+plot3d_button = ttk.Button(frames['Analysis'], text= '3D graph', command= show_3d, state= 'disabled')
+band_monitor = tk.Frame(frames['Analysis'])
+band_label = tk.Label(band_monitor, text= canvas.band.get())        # didn't use textvariable cause ttk.Label will show lots of digits
+band_scalebar = ttk.Scale(band_monitor, from_= 1, to= 150, variable= canvas.band, 
+                          command= lambda x: (canvas.update_band(x), band_label.configure(text=canvas.band.get())))
+
+# hough widgets
+frames['Hough'] = tk.Frame(root)
+hough_para_monitor = ttk.Frame(frames['Hough'], border= 6)
+dp_entry = CustomEntry(hough_para_monitor, root, True)
+dp_entry.insert(0, 1.5)
+mindist_entry = CustomEntry(hough_para_monitor, root, True)
+mindist_entry.insert(0, 6)
+canny_thres_entry = CustomEntry(hough_para_monitor, root, True)
+canny_thres_entry.insert(0, 10)
+roundness_thres_entry = CustomEntry(hough_para_monitor, root, True)
+roundness_thres_entry.insert(0, 0.5)
+minrad_entry = CustomEntry(hough_para_monitor, root)
+minrad_entry.insert(0, 6)
+maxrad_entry = CustomEntry(hough_para_monitor, root)
+maxrad_entry.insert(0, 16)
+hough_button = ttk.Button(frames['Hough'], text= 'calculate', state= 'disabled')
+
+# place widgets
 PADX = 10
-scale_monitor.grid(row= 0, column= 0, padx= (PADX, 0))
+# analysis part
+scale_monitor.grid(row= 0)
 ttk.Label(scale_monitor, text= 'scale: ', background= 'gray80', foreground= 'blue',
           font= ('Times New Roman', 16)).grid(row= 0, column= 0, sticky= 'E')
 ttk.Label(scale_monitor, textvariable= canvas.scale_factor, background= 'gray80', foreground= 'blue',
           font=('Times New Roman', 16)).grid(row= 0, column= 1, sticky= 'W')
-color_monitor.grid(row= 1, column= 0, padx= (PADX, 0))
+color_monitor.grid(row= 1)
 tk.Label(color_monitor, text= 'graph color').grid(row= 0, column= 0, sticky= 'S', columnspan= 2)
 color_button.grid(row= 1, column= 0, columnspan= 2)
 tk.Label(color_monitor, text= 'current:').grid(row= 2, column= 0, pady= 10)
 current_color.grid(row= 2, column= 1, sticky= 'we')
-graph2d_monitor.grid(row= 2, column= 0, padx=(PADX, 0))
+graph2d_monitor.grid(row= 2)
 graph_button.grid(row= 0, column= 0)
 save_spec_button.grid(row= 1, column= 0, pady= (5,0))
-plot3d_button.grid(row= 3, column= 0, padx=(PADX, 0))
-band_monitor.grid(row= 4, column= 0, padx=(PADX, 0))
+plot3d_button.grid(row= 3, column= 0)
+band_monitor.grid(row= 4)
 tk.Label(band_monitor, text= 'band: ').grid(row= 0, column= 0, sticky='E')
 band_label.grid(row= 0, column= 1, sticky='W')
 band_scalebar.grid(row= 1, columnspan= 2)
+# hough part
+entry_pady = (10, 0)
+hough_para_monitor.grid(row=0)
+ttk.Label(hough_para_monitor, text= 'Parameters', font=('Times New Roman', 16)).grid(row= 0, columnspan=2)
+ttk.Label(hough_para_monitor, text= 'dp').grid(row= 1, column= 0, sticky= "W", pady= entry_pady)
+dp_entry.grid(row= 1, column= 1, pady= entry_pady)
+ttk.Label(hough_para_monitor, text= 'min dist').grid(row= 2, column= 0, sticky= "W", pady=entry_pady)
+mindist_entry.grid(row= 2, column= 1, pady= entry_pady)
+ttk.Label(hough_para_monitor, text= 'canny').grid(row= 3, column= 0, sticky= "W", pady=entry_pady)
+canny_thres_entry.grid(row= 3, column= 1, pady= entry_pady)
+ttk.Label(hough_para_monitor, text= 'roundness').grid(row= 4, column= 0, sticky= "W", pady=entry_pady)
+roundness_thres_entry.grid(row= 4, column= 1, pady= entry_pady)
+ttk.Label(hough_para_monitor, text= 'min rad').grid(row= 5, column= 0, sticky= "W", pady=entry_pady)
+minrad_entry.grid(row= 5, column= 1, pady= entry_pady)
+ttk.Label(hough_para_monitor, text= 'max rad').grid(row= 6, column= 0, sticky= "W", pady=entry_pady)
+maxrad_entry.grid(row= 6, column= 1, pady= entry_pady)
+hough_button.grid(row=1)
 
-statusbar.grid(row= 5, column=0, columnspan= 2, sticky= 'WE')
-canvas.grid(row= 0, column= 1, rowspan= 5, padx= PADX, pady= 5)
+# mode switch
+current_mode = tk.StringVar(root, value= 'Analysis')
+mode_switch = ttk.OptionMenu(root, current_mode, 'Analysis', *frames.keys(), command= switch_frame)
+mode_switch.grid(row= 1, column= 0, padx= (PADX, 0), pady= 5)
+
+statusbar.grid(row= 2, column=0, columnspan= 2, sticky= 'WE')
+canvas.grid(row= 0, column= 1, rowspan= 2, padx= PADX, pady= 5)
+
+# make widgets distribute equally
+for frame in frames.values():
+    frame.grid_columnconfigure([i for i in range(frame.grid_size()[0])], weight=1)
+    frame.grid_rowconfigure([i for i in range(frame.grid_size()[1])], weight=1)
+switch_frame()  # initialize call
+root.grid_rowconfigure(0, weight= 1)
 
 # Start the Tkinter event loop
 root.mainloop()
