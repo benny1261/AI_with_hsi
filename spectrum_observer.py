@@ -14,6 +14,7 @@ from matplotlib.ticker import LinearLocator
 from matplotlib import cm
 import csv
 import cv2
+import math
 from collections.abc import MutableSequence
 
 spectral.settings.envi_support_nonlowercase_params = 'TRUE'
@@ -201,6 +202,12 @@ def switch_frame(*event):
 
     # switch settings in canvas
     canvas.switch_mode()
+
+def hough_button_state(length):
+    if length > 0:
+        clear_button.configure(state= 'normal')
+    else:
+        clear_button.configure(state= 'disabled')
 
 class PlotSpectrum:
     def __init__(self) -> None:
@@ -448,7 +455,7 @@ class ZoomDrag(tk.Canvas):
         self.band = tk.IntVar(value= 50)
         self.dots = CallbackList()
         self.dots_len = tk.IntVar(value= 0)
-        self.dots.set_callback(lambda x:self.dots_len.set(x))
+        self.dots.set_callback(lambda x:(self.dots_len.set(x), hough_button_state(x)))
         self.init_attribute()
         self.drawing = False
         self.lines = []         # will clear itself after every draw
@@ -491,13 +498,43 @@ class ZoomDrag(tk.Canvas):
         self.bind('<Button-2>', self.pick_color)
 
     def hough_binds(self):
-        pass
+        self.ctrl_pressing:bool = False
+        def pressed(event):
+            if event.keysym == 'Control_L' or event.keysym == 'Control_R':
+                if not self.ctrl_pressing:
+                    self.ctrl_pressing = True
+                    self.bind('<Motion>', self.track_mouse)
+                    self.track_mouse(event)
+                    # change drag_behavior
+                    self.unbind('<ButtonPress-1>')
+                    self.unbind('<B1-Motion>')
+                    self.unbind('<ButtonRelease-1>')
+                    # self.bind('<ButtonPress-1>', lambda x: print('s'))
+
+        def released(event):
+            if event.keysym == 'Control_L' or event.keysym == 'Control_R':
+                if self.ctrl_pressing:
+                    self.ctrl_pressing = False
+                    self.clear_selected()
+                    self.unbind('<Motion>')
+                    # resume drag behavior
+                    self.bind('<ButtonPress-1>', self.start_drag)
+                    self.bind('<B1-Motion>', self.drag)
+                    self.bind('<ButtonRelease-1>', self.stop_drag)
+
+        self.bind('<Enter>', lambda x :self.focus_set())        # set focus when mouse enter canvas
+        self.bind('<Control-KeyPress>', pressed)                # trigger once on press, then trigger while motion
+        self.bind('<Control-KeyRelease>', released)
 
     def unbind_dynamic(self):
         self.unbind("<ButtonPress-3>")
         self.unbind("<ButtonRelease-3>")
         self.unbind("<B3-Motion>")
         self.unbind('<Button-2>')
+        self.unbind('<Enter>')
+        self.unbind('<Motion>')
+        self.unbind('<Control-Keypress>')
+        self.unbind('<Control-KeyRelease>')
 
     def load_array(self, arr, normed_arr):
         self.init_attribute()
@@ -694,6 +731,7 @@ class ZoomDrag(tk.Canvas):
             self.graph_color = color[1]     # HEX color code
 
     def calculate_hough(self, dp:float, mindist:float, param1:float, param2:float, minrad:int, maxrad:int):
+        self.dots.clear()
         circles = cv2.HoughCircles(
             self.normed_gray,
             cv2.HOUGH_GRADIENT_ALT,
@@ -702,30 +740,97 @@ class ZoomDrag(tk.Canvas):
             param1= param1,
             param2= param2,
             minRadius= minrad,
-            maxRadius= maxrad
-        )
+            maxRadius= maxrad)
 
-        rad:int = 3
-        size:int= 7
-        patch = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(patch)
-        draw.ellipse((size//2-rad, size//2-rad, size//2+rad, size//2+rad), (0,0,255,100))
-        self.tkpatch = ImageTk.PhotoImage(patch)
-
-        bbox = self.bbox(self.image_id)
         # circles.shape (1, N, 3)
         if circles is None: return
         circles = np.squeeze(circles)
         circles = np.uint16(np.around(circles))
         for x, y, _rad in circles:
-            dot = self.PatchManager(x, y)
-            dot.id = self.create_image(bbox[0]+x, bbox[1]+y, image=self.tkpatch, anchor=tk.CENTER, tags= ('image','dynamic','hough'))
+            dot = self.PatchManager(self, x, y)
             self.dots.append(dot)
 
+    def track_mouse(self, event):
+        if not self.image_id:
+            return
+        bbox = self.bbox(self.image_id)
+        def get_closest_index():
+            distance:float = 50
+            closest_ind = None
+            for index, dot in enumerate(self.dots):
+                real_x, real_y = bbox[0]+dot.x*self.scale_factor.get(), bbox[1]+dot.y*self.scale_factor.get()
+                temp = math.sqrt((real_x-event.x)**2+(real_y-event.y)**2)
+                if temp<distance:
+                    distance = temp
+                    closest_ind = index
+            if closest_ind is None:
+                return None
+            else:
+                return closest_ind
+
+        def check_single(new_ind):
+            '''deselect old dot if new dot selected'''
+            for index, dot in enumerate(self.dots):
+                if index != new_ind and dot.select_flag == True:
+                    dot.deselect()
+                    return  # skip rest for better performance
+
+        ind = get_closest_index()
+        if ind is None:
+            self.clear_selected()
+            return
+        dot = self.dots[ind]
+        dot.select()
+        check_single(ind)
+
+    def clear_selected(self):
+        for dot in self.dots:
+            if dot.select_flag == True:
+                dot.deselect()
+                return
+
     class PatchManager:
-        def __init__(self, x, y) -> None:
-            self.x, self.y = x, y
+        def __init__(self, master, x:int, y:int) -> None:
+            self.x:int = x
+            self.y:int = y
+            self.rad:int = 3
+            self.size:int = 7
+            self.color = (0,255,0,200)
+            self.selected_color = (0,200,200,200)
+            self.master:tk.Canvas = master
             self.id = None
+            self.select_flag:bool = False
+            self.create_patch(self.color)
+
+        def create_patch(self, color):
+            patch = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))            
+            draw = ImageDraw.Draw(patch)
+            draw.ellipse((self.size//2-self.rad, self.size//2-self.rad, self.size//2+self.rad, self.size//2+self.rad), color)
+            self.tkpatch = ImageTk.PhotoImage(patch)
+            bbox = self.master.bbox(self.master.image_id)
+            if self.id is not None:
+                self.master.delete(self.id)
+            self.id = self.master.create_image(bbox[0]+self.x*self.master.scale_factor.get(), bbox[1]+self.y*self.master.scale_factor.get(),
+                                               image=self.tkpatch, anchor=tk.CENTER, tags= ('image','dynamic','hough'))
+
+        def select(self):
+            self.create_patch(color= self.selected_color)
+            self.select_flag = True
+
+        def deselect(self):
+            self.create_patch(color= self.color)
+            self.select_flag = False
+
+        def configure(self, **kwargs):
+            """
+            Configure the attributes of the PatchManager instance.
+            """
+            for key, value in kwargs.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+                    self.create_patch(self.color)       # will replace old self.id
+                else:
+                    raise ValueError(f"'{key}' is not a valid attribute of PatchManager")
 
         def del_instance(self):
             del self
@@ -804,10 +909,11 @@ minrad_entry = CustomEntry(hough_para_monitor, root)
 minrad_entry.insert(0, 6)
 maxrad_entry = CustomEntry(hough_para_monitor, root)
 maxrad_entry.insert(0, 16)
+amount_monitor = tk.Frame(frames['hough'])
+clear_button = ttk.Button(frames['hough'], text= 'clear', command= canvas.dots.clear, state= 'disabled')
 hough_button = ttk.Button(frames['hough'], text= 'calculate', state= 'disabled', command= lambda: canvas.calculate_hough(
     float(dp_entry.get()), float(mindist_entry.get()), float(canny_thres_entry.get()), float(roundness_thres_entry.get()),
     int(minrad_entry.get()), int(maxrad_entry.get())))
-amount_monitor = tk.Frame(frames['hough'])
 
 # place widgets
 PADX = 10
@@ -854,7 +960,8 @@ maxrad_entry.grid(row= 6, column= 1, pady= entry_pady)
 amount_monitor.grid(row=2)
 tk.Label(amount_monitor, text= 'amount:').grid(row=0, column= 0, sticky= "E")
 tk.Label(amount_monitor, textvariable= canvas.dots_len).grid(row= 0, column= 1, sticky= 'W')
-hough_button.grid(row=3)
+clear_button.grid(row=3)
+hough_button.grid(row=4)
 
 # mode switch
 mode = tk.StringVar(root, value= 'analysis')
