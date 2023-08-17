@@ -41,7 +41,7 @@ if __name__ == '__main__':
     model_band, model_class, PATCH_LENGTH, model_denom= extract_parameters(MODEL)
     # Data Loading ------------------------------------------------------
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, model_denom)
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, model_denom, mode= 'center_weighted')
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 

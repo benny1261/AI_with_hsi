@@ -26,11 +26,11 @@ import Utils
 VERIFY: bool = False
 PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
-# data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),(r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
-#         , (r'slices\20230608_2', 40), (r'slices\20230617_v2-4_0', 40), (r'slices\20230617_v2-4_1', 40)]
-data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
-        , r'slices', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200', r'slices\gen_img\3D\2300',
-        r'slices\gen_img\3D\2400', r'slices\gen_img\3D\2500', r'slices\gen_img\3D\2600']
+data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),(r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
+        , (r'slices\20230608_2', 40), (r'slices\20230617_v2-4_0', 40), (r'slices\20230617_v2-4_1', 40)]
+# data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
+#         , r'slices', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200', r'slices\gen_img\3D\2300',
+#         r'slices\gen_img\3D\2400', r'slices\gen_img\3D\2500', r'slices\gen_img\3D\2600']
 
 CUT_SIZE = (1536, 1024)             # cut size of each block (for hstack)
 REMAIN_BAND: int = 30               # number of channels to keep (for PCA)
@@ -47,10 +47,11 @@ seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      
 
 def load_dataset(data, denom:int= 1, mode:str= 'single'):
     '''mode:\n
-    single: (maskpath.png, hsipath)\n
-    hstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
-    weighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...] //patch/patchmask should in same dir\n
-    gans: [((maskpath.png, hsipath), (maskpath2.png, hsipath2),...), *patches_dirs]
+    - single: (maskpath.png, hsipath)\n
+    - hstack: [(maskpath.png, hsipath, leftuppercord), (maskpath2.png, hsipath2, leftuppercord2)...]\n
+    - weighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...]\n
+    - center_weighted: [(maskpath.png, hsipath), (patchpath1, weight), (patchpath2, weight)...]\n
+    - gans: [((maskpath.png, hsipath), (maskpath2.png, hsipath2),...), *patches_dirs]\n
     @ patch/patchmask should in same dir, will use generated common mask if mask not found
     @ in weighted/gans mode you should add a comma if only one hsi, ex: [((maskpath.png, hsipath),), *patches_dirs]'''
 
@@ -112,7 +113,25 @@ def load_dataset(data, denom:int= 1, mode:str= 'single'):
 
             print(f'{len(hsi_dict["data"])} hsi used, {len(patch_dict["data"])} patch used.')
             data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict)
-                    
+
+        elif mode == 'center_weighted':
+            for tup in data[0]:
+                hsi_dict['mask'].append(Utils.label_transfer(PATH+tup[0]))
+                envi_hsi = envi.open(PATH+tup[1] + ".hdr" , PATH+tup[1] + ".raw")
+                hsi_dict['data'].append(envi_hsi.load())
+
+            for patch_tup in data[1:]:
+                npy_path = PATH + patch_tup[0] + '.npy'
+                patch_data = np.load(npy_path)
+                patch_mask = None
+
+                for _ in range(patch_tup[1]):
+                    patch_dict['data'].append(patch_data)
+                    patch_dict['mask'].append(patch_mask)
+
+            print(f'{len(hsi_dict["data"])} hsi used, {len(patch_dict["data"])} patch used.')
+            data_hsi, gt_hsi = Utils.blockize(hsi_dict, patch_dict, minor_label= 1, automask_rad= 3)
+
         else:   # basic single mode
             gt_hsi = Utils.label_transfer(PATH+data[0])
             envi_hsi = envi.open(PATH+data[1] + ".hdr" , PATH+data[1] + ".raw")
@@ -502,7 +521,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
     os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'gans')
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'center_weighted')
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 

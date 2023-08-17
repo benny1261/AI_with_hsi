@@ -230,15 +230,18 @@ def simple_select(cube: np.ndarray, denominator: int)-> np.ndarray:
 
     return np.array(recursive_stack(cube[:,:,0], 1))
 
-def labeled_filled_circle(shape:int, label:int)->np.ndarray:
+def labeled_filled_circle(shape:int, label:int, rad:int = None)->np.ndarray:
     '''returns a (shape*shape) 2D numpy array with 0 as background and label value as filled circle in center.\n
-    radius of circle is set to 3/8 of shape.'''
+    radius of circle is set to 3/8 of shape if value of rad not given.'''
     y, x = np.ogrid[:shape, :shape]
     distance = np.sqrt((x - shape//2) ** 2 + (y - shape//2) ** 2)
-    radius = shape*3//8
+    if rad is None:
+        radius = shape*3//8
+    else:
+        radius = rad
     return np.where(distance <= radius, 1, 0).astype(np.uint8)*label
 
-def blockize(hsi_with_mask:dict, patch_with_mask:dict, minor_label:int= 1)-> tuple[np.ndarray, np.ndarray]:
+def blockize(hsi_with_mask:dict, patch_with_mask:dict, minor_label:int= 1, automask_rad = None)-> tuple[np.ndarray, np.ndarray]:
     '''hsi_with_mask: {'data':list of hsi, ''mask':list of ndarray mask}\n
     patch_with_mask: {'data':list of patch, ''mask':list of ndarray mask}\n
     @ hsi is not neccessary np.ndarray, an array like list should work
@@ -255,7 +258,7 @@ def blockize(hsi_with_mask:dict, patch_with_mask:dict, minor_label:int= 1)-> tup
     BLOCK_HEIGHT:int = major_mask.shape[0]
     ROWMAX:int = BLOCK_HEIGHT//PATCH_HEIGHT
     # auto generate mask for patch mask where there are none
-    patch_with_mask['mask'] = [labeled_filled_circle(PATCH_HEIGHT, minor_label) if patch is None
+    patch_with_mask['mask'] = [labeled_filled_circle(PATCH_HEIGHT, minor_label, automask_rad) if patch is None
                                else patch for patch in patch_with_mask['mask']]
 
     # tile patches ----------------------------------------------------------------------
