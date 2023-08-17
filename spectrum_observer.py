@@ -488,6 +488,8 @@ class ZoomDrag(tk.Canvas):
         self.bind('<MouseWheel>', self.zoom)
         self.bind('<Button-4>', self.zoom)
         self.bind('<Button-5>', self.zoom)
+        self.bind('<Motion>', self.track_mouse)
+        self.bind('<Leave>', lambda event: invisiblebar.configure(text=''))
         self.analysis_binds()
 
     def init_attribute(self):
@@ -528,7 +530,6 @@ class ZoomDrag(tk.Canvas):
             if event.keysym == 'Control_L' or event.keysym == 'Control_R':
                 self.ctrl_pressing = False
 
-        self.bind('<Motion>', self.track_mouse)
         self.bind('<Enter>', lambda x :self.focus_set())        # set focus when mouse enter canvas
         self.bind('<Control-KeyPress>', pressed)                # trigger once on press, then trigger while motion
         self.bind('<Control-KeyRelease>', released)
@@ -540,7 +541,6 @@ class ZoomDrag(tk.Canvas):
         self.unbind("<ButtonRelease-3>")
         self.unbind("<B3-Motion>")
         self.unbind('<Enter>')
-        self.unbind('<Motion>')
         self.unbind('<Control-Keypress>')
         self.unbind('<Control-KeyRelease>')
         self.unbind('<Double-Button-1>')
@@ -782,36 +782,44 @@ class ZoomDrag(tk.Canvas):
     def track_mouse(self, event):
         if not self.image_id:
             return
+        def status_bar_coord():
+            if any((event.x<bbox[0], event.x>bbox[2], event.y<bbox[1], event.y>bbox[3])):
+                invisiblebar.configure(text= '')
+                return
+            orig_x, orig_y = (event.x-bbox[0])//self.scale_factor.get(), (event.y-bbox[1])//self.scale_factor.get()
+            invisiblebar.configure(text= f'x:{orig_x}, y:{orig_y}')
         bbox = self.bbox(self.image_id)
-        def get_closest_index():
-            distance:float = 50
-            closest_ind = None
-            for index, dot in enumerate(self.dots):
-                real_x, real_y = bbox[0]+dot.x*self.scale_factor.get(), bbox[1]+dot.y*self.scale_factor.get()
-                temp = math.sqrt((real_x-event.x)**2+(real_y-event.y)**2)
-                if temp<distance:
-                    distance = temp
-                    closest_ind = index
-            if closest_ind is None:
-                return None
-            else:
-                return closest_ind
+        status_bar_coord()
+        if mode.get() == 'hough':
+            def get_closest_index():
+                distance:float = 50
+                closest_ind = None
+                for index, dot in enumerate(self.dots):
+                    real_x, real_y = bbox[0]+dot.x*self.scale_factor.get(), bbox[1]+dot.y*self.scale_factor.get()
+                    temp = math.sqrt((real_x-event.x)**2+(real_y-event.y)**2)
+                    if temp<distance:
+                        distance = temp
+                        closest_ind = index
+                if closest_ind is None:
+                    return None
+                else:
+                    return closest_ind
 
-        def check_single(new_ind):
-            '''deselect old dot if new dot selected'''
-            for index, dot in enumerate(self.dots):
-                if index != new_ind and dot.select_flag == True:
-                    dot.deselect()
-                    return  # skip rest for better performance
+            def check_single(new_ind):
+                '''deselect old dot if new dot selected'''
+                for index, dot in enumerate(self.dots):
+                    if index != new_ind and dot.select_flag == True:
+                        dot.deselect()
+                        return  # skip rest for better performance
 
-        ind = get_closest_index()
-        self.selected_index = ind
-        if ind is None:
-            self.clear_selected()
-            return
-        dot = self.dots[ind]
-        dot.select()
-        check_single(ind)
+            ind = get_closest_index()
+            self.selected_index = ind
+            if ind is None:
+                self.clear_selected()
+                return
+            dot = self.dots[ind]
+            dot.select()
+            check_single(ind)
 
     def clear_selected(self):
         for dot in self.dots:
@@ -917,6 +925,7 @@ frames={}
 canvas = ZoomDrag(root)
 menu_bar = tk.Menu(root)
 statusbar = ttk.Label(root, text= 'Author C.C.Hsu 2023', border= 1, relief= 'sunken', anchor= 'e')
+invisiblebar = ttk.Label(root, border= 0, relief= 'sunken', anchor= 'w')
 
 # Create menus
 file_menu = tk.Menu(menu_bar, tearoff=0)
@@ -1037,6 +1046,7 @@ mode_switch = ttk.OptionMenu(root, mode, 'analysis', *frames.keys(), command= sw
 mode_switch.grid(row= 1, column= 0, padx= (PADX, 0), pady= 5)
 
 statusbar.grid(row= 2, column=0, columnspan= 2, sticky= 'WE')
+invisiblebar.grid(row= 2, column=0, sticky= 'WE')
 canvas.grid(row= 0, column= 1, rowspan= 2, padx= PADX, pady= 5)
 
 # make widgets distribute equally
