@@ -17,12 +17,12 @@ from A2S2KResNet import S3KAIResNet, load_dataset
 
 def extract_parameters(model_name: str):
     '''used to extract parameters from saved model file name'''
-
-    key_bands = 'bands'
     key_classes = 'classes'
     key_window = 'window'
     key_denom = 'denom'
-    bands = int(re.compile(f'(?<={key_bands})\d+').search(model_name).group())
+
+    match = re.search(r'bands\((\d+)\s?,\s?(\d+)\)', model_name)
+    bands = (int(match.group(1)), int(match.group(2)))
     classes = int(re.compile(f'(?<={key_classes})\d+').search(model_name).group())
     patch_length = int((int(re.compile(f'(?<={key_window})\d+').search(model_name).group())-1)/2)
     denom = int(re.compile(f'(?<={key_denom})\d+').search(model_name).group())
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
     # data = (r'CTC\masks\20230610_1.png', r'CTC\20230610_1')
     data = (r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4')
-    MODEL = "window7_split0.6_lr0.001_adam_kernel24_bands150_classes2_denom1_0.998.pt"
+    MODEL = "window7_split0.6_lr0.001_adam_kernel24_bands(0, 50)_classes2_denom1_1.0.pt"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("inferencing on ", device)
     BATCH_SIZE = 32
@@ -41,7 +41,8 @@ if __name__ == '__main__':
     model_band, model_class, PATCH_LENGTH, model_denom= extract_parameters(MODEL)
     # Data Loading ------------------------------------------------------
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, model_denom, mode= 'center_weighted')
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, model_denom)
+    data_hsi = data_hsi[:,:,model_band[0]:model_band[1]]
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
@@ -55,7 +56,7 @@ if __name__ == '__main__':
     padded_data = np.lib.pad(whole_data, ((PATCH_LENGTH, PATCH_LENGTH), (PATCH_LENGTH, PATCH_LENGTH),(0, 0)),'constant',constant_values=0)
 
     # load model --------------------------------------------------------
-    if any((model_band != BANDS, model_class != CLASSES_NUM)):
+    if model_class != CLASSES_NUM:
         raise Exception("input data do not match model parameters")
     model = S3KAIResNet(BANDS, CLASSES_NUM, 2)
     state_dict = torch.load(r'models/'+ MODEL)              # if model saved on GPU need to add map_location= device

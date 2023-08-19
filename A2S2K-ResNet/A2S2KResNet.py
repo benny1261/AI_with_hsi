@@ -22,12 +22,26 @@ import geniter
 import record
 import Utils
 
+def slice_assist(slice_dir:str, multiplicative:int= 1, *exceptions)->tuple:
+    '''
+    assisting function to help formatting input of weighted/center_weighted modes
+    @ slice_dir: path of directory that contains .npy slices, please provide abs path
+    @ multiplicative(optional): an integer that defines weight of all used slices
+    @ exceptions(optional): files here will be neglected in your slice_dir, only basename needed
+    '''
+    npy_paths = glob.glob(PATH+slice_dir+r'/*.npy')
+    paths = [os.path.splitext(file)[0] for file in npy_paths]       # delete extention
+    for exception in exceptions:
+        paths = [file for file in paths if not file.endswith(exception)]
+    return tuple([(path, multiplicative) for path in paths])
+
 # Setting Parameters ------------------------------------------------
 VERIFY: bool = False
+os.chdir(os.path.dirname(__file__))
 PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
-data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),(r'CTC\masks\20230617_v10-4.png', r'CTC\20230617_v10-4'))
-        , (r'slices\20230608_2', 40), (r'slices\20230617_v2-4_0', 40), (r'slices\20230617_v2-4_1', 40)]
+data = [((r'CTC\masks\20230608_2.png', r'CTC\20230608_2'),),
+        *slice_assist('slices', 10, '20230617_v10-4')]
 # data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
 #         , r'slices', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200', r'slices\gen_img\3D\2300',
 #         r'slices\gen_img\3D\2400', r'slices\gen_img\3D\2500', r'slices\gen_img\3D\2600']
@@ -42,7 +56,8 @@ lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
 EPOCH: int = 30
-DENOMINATOR: int = 1
+BANDS = (0, 50)                     # will slice [BANDS[0]:BANDS[1]]
+DENOMINATOR: int = 1                # note that currently denominator processes before slicing band
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 
 def load_dataset(data, denom:int= 1, mode:str= 'single'):
@@ -520,15 +535,15 @@ if __name__ == "__main__":
     # Data Loading ------------------------------------------------------
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("training on ", device)
-    os.chdir(os.path.dirname(__file__))
-    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, DENOMINATOR, mode= 'center_weighted')
+    data_hsi, gt_hsi, TOTAL_SIZE = load_dataset(data, mode= 'weighted')
+    data_hsi = data_hsi[:,:,BANDS[0]:BANDS[1]]                                                  # slice
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))           # flatten data
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
 
     # Passive Params-----------------------------------------------------
     img_rows = 2 * PATCH_LENGTH + 1
     img_cols = 2 * PATCH_LENGTH + 1
-    BANDS = data_hsi.shape[2]
+    BAND_NUM = data_hsi.shape[2]
     ALL_SIZE = data_hsi.shape[0] * data_hsi.shape[1]
     CLASSES_NUM = len(np.unique(gt))-1
     print('The class numbers of the HSI data is:', CLASSES_NUM)
@@ -541,18 +556,18 @@ if __name__ == "__main__":
     TESTING_TIME = []
     ELEMENT_ACC = np.zeros((ITER, CLASSES_NUM))
 
-    data = preprocessing.scale(data)            # standardize, equivalent to (X-X_mean)/X_std
+    data = preprocessing.scale(data)            # normalization, equivalent to (X-X_mean)/X_std
     whole_data = data.reshape(data_hsi.shape[0], data_hsi.shape[1], data_hsi.shape[2])  # shape back
     # pad before convolution to prevent decrease spatial dimension length
     padded_data = np.lib.pad(whole_data, ((PATCH_LENGTH, PATCH_LENGTH), (PATCH_LENGTH, PATCH_LENGTH),(0, 0)),'constant',constant_values=0)
 
-    model = S3KAIResNet(BANDS, CLASSES_NUM, 2).cuda()
-    summary(model, input_size=(1, img_rows, img_cols, BANDS), batch_dim= 0, verbose = 1)
+    model = S3KAIResNet(BAND_NUM, CLASSES_NUM, 2).cuda()
+    summary(model, input_size=(1, img_rows, img_cols, BAND_NUM), batch_dim= 0, verbose = 1)
 
     # Training ----------------------------------------------------------
     for index_iter in range(ITER):
         #define the model
-        net = S3KAIResNet(BANDS, CLASSES_NUM, 2)
+        net = S3KAIResNet(BAND_NUM, CLASSES_NUM, 2)
 
         if OPTIM == 'diffgrad':
             optimizer = optim2.DiffGrad(
@@ -584,7 +599,7 @@ if __name__ == "__main__":
         # Pytorch DataLoader
         train_iter, valida_iter, test_iter, all_iter = geniter.generate_iter(
             TRAIN_SIZE, train_indices, TEST_SIZE, test_indices, TOTAL_SIZE,
-            total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BANDS, batch_size, gt)
+            total_indices, VAL_SIZE, whole_data, PATCH_LENGTH, padded_data, BAND_NUM, batch_size, gt)
 
         print(f'------training({index_iter+1}/{ITER})------')
         tic1 = time.time()
