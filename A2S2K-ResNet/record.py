@@ -29,7 +29,7 @@ def aa_and_each_accuracy(confusion_matrix):
     return each_acc, average_acc
 
 
-def record_output(oa_ae, aa_ae, kappa_ae, element_acc_ae, training_time_ae, testing_time_ae, path):
+def record_output(oa_ae, aa_ae, kappa_ae, element_acc_ae, training_time_ae, testing_time_ae, confusion_matrix, path):
     f = open(path, 'a')     # append, write only
     sentence0 = 'OAs for each iteration are:' + str(oa_ae) + '\n'
     f.write(sentence0)
@@ -48,10 +48,15 @@ def record_output(oa_ae, aa_ae, kappa_ae, element_acc_ae, training_time_ae, test
         f.write(sentence6)
     sentence7 = 'Total average Testing time is: ' + str(np.sum(testing_time_ae)) + '\n' + '\n'
     f.write(sentence7)
-    element_mean = np.mean(element_acc_ae, axis=0)
-    element_std = np.std(element_acc_ae, axis=0)
-    sentence8 = "Mean of all elements in confusion matrix: " + str(element_mean) + '\n'
-    f.write(sentence8)
-    sentence9 = "Standard deviation of all elements in confusion matrix: " + str(element_std) + '\n'
-    f.write(sentence9)
+    if element_acc_ae != None:
+        element_mean = np.mean(element_acc_ae, axis=0)
+        element_std = np.std(element_acc_ae, axis=0)
+        sentence8 = "Mean of all elements in confusion matrix: " + str(element_mean) + '\n'
+        f.write(sentence8)
+        sentence9 = "Standard deviation of all elements in confusion matrix: " + str(element_std) + '\n'
+        f.write(sentence9)
+    sentence10 = f"confusion matrix:\n{confusion_matrix}"+'\n\n'
+    f.write(sentence10)
+    sentence11 = f"precision:{confusion_matrix[0,0]/(confusion_matrix[0,0]+confusion_matrix[0,1])}\nrecall:{confusion_matrix[0,0]/(confusion_matrix[0,0]+confusion_matrix[1,0])}"
+    f.write(sentence11)
     f.close()

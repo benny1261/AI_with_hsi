@@ -84,41 +84,28 @@ if __name__ == '__main__':
         num_workers=0,
     )
 
-    KAPPA = []
-    OA = []
-    AA = []
-    TESTING_TIME = []
-    ELEMENT_ACC = np.zeros((ITER, CLASSES_NUM))
+    pred_test = []
+    tic = time.time()
+    with torch.no_grad():
+        for X, y in all_iter:
+            # print('Shape of X', X.shape, 'Shape of y', y.shape)
+            # X = X.permute(0, 3, 1, 2)
+            X = X.to(device)
+            model.eval()
+            y_hat = model(X)
+            pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
+    toc = time.time()
+    collections.Counter(pred_test)
+    gt_test = gt[total_indices] - 1
 
-    for index_iter in range(ITER):
-        pred_test = []
-        tic = time.time()
-        with torch.no_grad():
-            for X, y in all_iter:
-                # print('Shape of X', X.shape, 'Shape of y', y.shape)
-                # X = X.permute(0, 3, 1, 2)
-                X = X.to(device)
-                model.eval()
-                y_hat = model(X)
-                pred_test.extend(np.array(y_hat.cpu().argmax(axis=1)))
-        toc = time.time()
-        collections.Counter(pred_test)
-        gt_test = gt[total_indices] - 1
-
-        overall_acc = metrics.accuracy_score(pred_test, gt_test)
-        confusion_matrix = metrics.confusion_matrix(pred_test, gt_test)
-        each_acc, average_acc = record.aa_and_each_accuracy(confusion_matrix)
-        kappa = metrics.cohen_kappa_score(pred_test, gt_test)
-
-        KAPPA.append(kappa)
-        OA.append(overall_acc)
-        AA.append(average_acc)
-        TESTING_TIME.append(toc - tic)
-        ELEMENT_ACC[index_iter, :] = each_acc
+    overall_acc = metrics.accuracy_score(pred_test, gt_test)
+    confusion_matrix = metrics.confusion_matrix(pred_test, gt_test)
+    each_acc, average_acc = record.aa_and_each_accuracy(confusion_matrix)
+    kappa = metrics.cohen_kappa_score(pred_test, gt_test)
 
     if not os.path.exists('result'):
         os.makedirs('result')
     record.record_output(
-        OA, AA, KAPPA, ELEMENT_ACC, None, TESTING_TIME,
+        overall_acc, average_acc, kappa, None, None, toc-tic, confusion_matrix,
         r'./result/' + MODEL.replace('.pt','.txt'))
     Utils.generate_png(all_iter, model, gt_hsi, device, total_indices, r'./result/' + MODEL.replace('.pt',''))

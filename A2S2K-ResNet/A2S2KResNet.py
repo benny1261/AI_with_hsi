@@ -642,7 +642,7 @@ if __name__ == "__main__":
     if not os.path.exists('report'):
         os.makedirs('report')
     record.record_output(
-        OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME,
+        OA, AA, KAPPA, ELEMENT_ACC, TRAINING_TIME, TESTING_TIME, confusion_matrix,
         './report/'+ str(img_rows)+ '_split'+ str(VALIDATION_SPLIT)+ '_lr'+ str(lr)+ '_'+ OPTIM+ '_kernel'
         + str(KERNEL_SIZE)+ '_denom'+ str(DENOMINATOR)+ '.txt')
 
