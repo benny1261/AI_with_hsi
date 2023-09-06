@@ -22,18 +22,22 @@ import geniter
 import record
 import Utils
 
-def slice_assist(slice_dir:str, multiplicative:int= 1, *exceptions)->tuple:
+def slice_assist(slice_dir:str, multiplicative:int= 1, extra:tuple[str,int]= None, *exceptions)->tuple:
     '''
     assisting function to help formatting input of weighted/center_weighted modes
     @ slice_dir: path of directory that contains .npy slices, please provide abs path
     @ multiplicative(optional): an integer that defines weight of all used slices
+    @ extra(optional): a tuple with format(file, specific multiplicative)
     @ exceptions(optional): files here will be neglected in your slice_dir, only basename needed
     '''
     npy_paths = glob.glob(PATH+slice_dir+r'/*.npy')
     paths = [os.path.splitext(file)[0] for file in npy_paths]       # delete extention
     for exception in exceptions:
         paths = [file for file in paths if not file.endswith(exception)]
-    return tuple([(path, multiplicative) for path in paths])
+    ret = [(path, multiplicative) for path in paths]
+    if extra is not None:
+        ret.append((os.path.join(PATH,slice_dir,extra[0]), extra[1]))
+    return tuple(ret)
 
 # Setting Parameters ------------------------------------------------
 VERIFY: bool = False
@@ -41,7 +45,7 @@ os.chdir(os.path.dirname(__file__))
 PATH = r'../data/'
 # data = (r'CTC\masks\20230608_2.png', r'CTC\20230608_2')
 data = [((r'CTC\masks\20230608_2.png', r'CTC\20230608_2'),),
-        *slice_assist('slices', 10, '20230617_v10-4')]
+        *slice_assist('slices', 10, None, '20230617_v10-4')]
 # data = [((r'CTC\masks\20230617_v10-3.png', r'CTC\20230617_v10-3'),)
 #         , r'slices', r'slices\gen_img\3D\2100', r'slices\gen_img\3D\2200', r'slices\gen_img\3D\2300',
 #         r'slices\gen_img\3D\2400', r'slices\gen_img\3D\2500', r'slices\gen_img\3D\2600']
@@ -56,7 +60,7 @@ lr, num_epochs, batch_size = 0.001, 200, 32
 loss = torch.nn.CrossEntropyLoss()
 OPTIM = 'adam'
 EPOCH: int = 30
-BANDS = (0, 50)                     # will slice [BANDS[0]:BANDS[1]]
+BANDS = (50, 100)                     # will slice [BANDS[0]:BANDS[1]]
 DENOMINATOR: int = 1                # note that currently denominator processes before slicing band
 seeds = [1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340, 1341]      # for Monte Carlo runs
 

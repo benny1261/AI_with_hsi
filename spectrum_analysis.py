@@ -61,9 +61,20 @@ def show_ccmatrix(*data:dict):
     plt.suptitle("Correlation Coefficient Matrix")
     plt.tight_layout()
 
+def dict2array(data:dict, meanstd:bool= False)->np.ndarray:
+    _list = []
+    for line in data.values():
+        _list.append(line)
+    block =  np.array(_list)
+    if meanstd:
+        means = np.mean(block, axis= 0)
+        stds = np.std(block, axis= 0)
+        return block, means, stds
+    return block
+
 if __name__ == '__main__':
 
-    PATH:str = r'C:\Users\ohyea\OneDrive\Desktop\analysis'
+    PATH:str = r'C:\Users\user\Desktop\analysis'
 
     ctcs = read_csv_to_dict(os.path.join(PATH, 'ctc.csv'), sample= 20)
     wbc_20230617_v10_3 = read_csv_to_dict(os.path.join(PATH, 'wbc_20230617_v10-3.csv'), sample= 20)
@@ -73,50 +84,26 @@ if __name__ == '__main__':
     # correlation coefficient --------------------------------------------------------------
     show_ccmatrix(ctcs, wbc_20230617_v10_3, wbc_20230703_v1_2, wbc_20230707_v4_8)
 
-    # Plotting ------------------------------------------------------------------------------
-    # fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+    # Plot mean and std --------------------------------------------------------------------
+    # ctc_arr, ctc_mean, ctc_std = dict2array(ctcs, True)
+    # wbc_20230617_v10_3_arr, wbc_20230617_v10_3_mean, wbc_20230617_v10_3_std = dict2array(wbc_20230617_v10_3, True)
+    # wbc_20230703_v1_2_arr, wbc_20230703_v1_2_mean, wbc_20230703_v1_2_std = dict2array(wbc_20230703_v1_2, True)
+    # wbc_20230707_v4_8_arr, wbc_20230707_v4_8_mean, wbc_20230707_v4_8_std = dict2array(wbc_20230707_v4_8, True)
 
-    # # Plotting ctcs in the first subplot
-    # for key, values in ctcs.items():
-    #     ax1.plot(wavelength, values, label=key)
+    # plt.plot(wavelengths, ctc_mean, label='ctc', color= 'red')
+    # plt.fill_between(wavelengths, ctc_mean - ctc_std, ctc_mean + ctc_std, alpha=0.3, color= 'red')
+    # plt.plot(wavelengths, wbc_20230617_v10_3_mean, label='wbc_20230617_v10_3', color= 'blue')
+    # plt.fill_between(wavelengths, wbc_20230617_v10_3_mean - wbc_20230617_v10_3_std, wbc_20230617_v10_3_mean + wbc_20230617_v10_3_std, alpha=0.3, color= 'blue')
+    # plt.plot(wavelengths, wbc_20230703_v1_2_mean, label='wbc_20230703_v1_2', color= 'green')
+    # plt.fill_between(wavelengths, wbc_20230703_v1_2_mean - wbc_20230703_v1_2_std, wbc_20230703_v1_2_mean + wbc_20230703_v1_2_std, alpha=0.3, color= 'green')
+    # plt.plot(wavelengths, wbc_20230707_v4_8_mean, label='wbc_20230707_v4_8', color= 'brown')
+    # plt.fill_between(wavelengths, wbc_20230707_v4_8_mean - wbc_20230707_v4_8_std, wbc_20230707_v4_8_mean + wbc_20230707_v4_8_std, alpha=0.3, color= 'brown')
 
-    # ax1.set_title('CTCs')
-    # ax1.set_ylabel('Intensity')
-    # # ax1.legend()
-
-    # # Plotting wbcs in the second subplot
-    # for key, values in wbc_20230617_v10_3.items():
-    #     ax2.plot(wavelength, values, label=key)
-
-    # for key, values in wbc_20230703_v1_2.items():
-    #     ax2.plot(wavelength, values, label=key)
-
-    # for key, values in wbc_wbc_20230707_v4_8.items():
-    #     ax2.plot(wavelength, values, label=key)
-
-    # ax2.set_title('WBCs')
-    # ax2.set_xlabel('Wavelength')
-    # ax2.set_ylabel('Intensity')
-    # # ax2.legend()
-
-# ----------------------------------------------------------
-    # fig, ax = plt.subplots()
-
-    # for key, values in ctcs.items():
-    #     ax.plot(wavelength, values, label=key, color= 'red')
-
-    # for key, values in wbc_20230617_v10_3.items():
-    #     ax.plot(wavelength, values, label=key, color= 'blue')
-
-    # for key, values in wbc_20230703_v1_2.items():
-    #     ax.plot(wavelength, values, label=key, color= 'green')
-
-    # for key, values in wbc_wbc_20230707_v4_8.items():
-    #     ax.plot(wavelength, values, label=key, color= 'red')
-
-    # ax.set_title('CTC(R)&WBC(B)')
-    # ax.set_xlabel('Wavelength')
-    # ax.set_ylabel('Intensity')
+    # plt.xlabel('Wavelengths')
+    # plt.ylabel('Transmittance')
+    # plt.title('Average Line Plot with Standard Deviation')
+    # plt.legend()
+    # plt.grid(True)
 
 # ----------------------------------------------------------
     # Adjusting layout to prevent overlapping of titles and labels
